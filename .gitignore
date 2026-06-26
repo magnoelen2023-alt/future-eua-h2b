@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+
+.env
+.env.*
+src/.env
+src/.env.*
+
+GMAIL_PASS.txt
+CHAVE API.txt
+MINHA CHAVE.txt
+licenses.json
+
+uploads/
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.DS_Store
+Thumbs.db
