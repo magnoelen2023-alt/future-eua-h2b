@@ -1,13 +1,11 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import { Resend } from 'resend' // Usando Resend em vez de Nodemailer
-import fs from 'fs/promises'
-import path from 'path'
+import { Resend } from 'resend'
+import { createClient } from '@supabase/supabase-js'
 
 const app = express()
 
-// Configuração de CORS (permite o header do admin)
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -18,31 +16,17 @@ app.use(express.json())
 const PORT = process.env.PORT || 3001
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'MAGNO-ADMIN-2026'
 
-// ===================== CONFIGURAÇÃO DO RESEND =====================
+// ===================== RESEND =====================
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev'
 
-// ===================== ARQUIVO DE LICENÇAS =====================
-const LICENSES_FILE = path.resolve('licenses.json')
+// ===================== SUPABASE =====================
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+)
 
-async function ensureLicensesFile() {
-  try {
-    await fs.access(LICENSES_FILE)
-  } catch {
-    await fs.writeFile(LICENSES_FILE, JSON.stringify([], null, 2))
-  }
-}
-
-async function readLicenses() {
-  await ensureLicensesFile()
-  const raw = await fs.readFile(LICENSES_FILE, 'utf-8')
-  return JSON.parse(raw || '[]')
-}
-
-async function writeLicenses(licenses) {
-  await fs.writeFile(LICENSES_FILE, JSON.stringify(licenses, null, 2))
-}
-
+// ===================== FUNÇÕES AUXILIARES =====================
 function generateBlock(length = 4) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let result = ''
@@ -78,11 +62,7 @@ function normalizeLockedProfile(user = {}) {
 }
 
 function requireAdmin(req, res) {
-  const secretFromHeader = req.headers['x-admin-secret']
-  const secretFromQuery = req.query.secret
-  const secretFromBody = req.body?.secret
-  const received = secretFromHeader || secretFromQuery || secretFromBody
-
+  const received = req.headers['x-admin-secret'] || req.query.secret || req.body?.secret
   if (received !== ADMIN_SECRET) {
     res.status(401).json({ ok: false, error: 'Acesso administrativo negado.' })
     return false
@@ -90,22 +70,16 @@ function requireAdmin(req, res) {
   return true
 }
 
-// ===================== FUNÇÕES DE DOWNLOAD E ANEXOS =====================
+// ===================== DOWNLOAD E ANEXOS =====================
 async function downloadFileFromUrl(url) {
   try {
     if (!url || url === 'null' || url === 'undefined') return null
-    console.log(`📥 Baixando: ${url.substring(0, 70)}...`)
     const response = await fetch(url)
-    if (!response.ok) {
-      console.warn(`⚠️ Falha ao baixar (status ${response.status})`)
-      return null
-    }
+    if (!response.ok) return null
     const arrayBuffer = await response.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    console.log(`✅ Baixado: ${(buffer.length / 1024).toFixed(1)} KB`)
-    return buffer
+    return Buffer.from(arrayBuffer)
   } catch (error) {
-    console.error(`❌ Erro ao baixar arquivo: ${error.message}`)
+    console.error(`❌ Erro download: ${error.message}`)
     return null
   }
 }
@@ -119,79 +93,81 @@ async function prepareAttachments(attachments = []) {
       if (buffer && buffer.length > 0) {
         const urlPath = new URL(att.url).pathname
         const ext = urlPath.split('.').pop() || 'pdf'
-        const filename = att.filename || `documento.${ext}`
-        prepared.push({ filename, content: buffer })
-        console.log(`📎 Anexo pronto: ${filename}`)
+        prepared.push({
+          filename: att.filename || `documento.${ext}`,
+          content: buffer
+        })
       }
     } catch (error) {
-      console.error(`❌ Erro ao preparar anexo: ${error.message}`)
+      console.error(`❌ Erro anexo: ${error.message}`)
     }
   }
   return prepared
 }
 
 // ===================== ROTAS =====================
-
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, message: 'Backend Future EUA H2B rodando!' })
 })
 
-// ROTA PARA GERAR KEY (ACESSO PELO CELULAR)
-// Exemplo: https://SEU-LINK.onrender.com/api/admin/generate-key?secret=MAGNO-ADMIN-2026&email=cliente@email.com
+// GERAR KEY (acesse pelo celular)
 app.get('/api/admin/generate-key', async (req, res) => {
   if (!requireAdmin(req, res)) return
 
   try {
-    const licenses = await readLicenses()
-    let key = generatePremiumKey()
-
-    while (licenses.some((license) => license.key === key)) {
-      key = generatePremiumKey()
-    }
-
     const email = req.query.email ? String(req.query.email).toLowerCase() : ''
     const days = parseInt(req.query.days) || 180
+    const key = generatePremiumKey()
 
-    const license = {
-      key,
-      status: 'unused',
-      assignedEmail: email,
-      lockedProfile: null,
-      createdAt: new Date().toISOString(),
-      activatedAt: null,
-      expiresAt: null,
-      maxDaily: 100,
-      maxSeason: 3500,
-      daysValid: days,
+    const { data, error } = await supabase
+      .from('licenses')
+      .insert([{
+        key,
+        status: 'unused',
+        assigned_email: email,
+        days_valid: days,
+        max_daily: 100,
+        max_season: 3500,
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Erro Supabase:', error)
+      return res.status(500).json({ ok: false, error: error.message })
     }
 
-    licenses.push(license)
-    await writeLicenses(licenses)
-
-    console.log(`🔑 KEY GERADA: ${key} para ${email || 'N/A'}`)
-
+    console.log(`🔑 KEY GERADA: ${key} para ${email}`)
     return res.json({
       ok: true,
       key,
-      license,
+      license: data,
       message: 'Chave gerada com sucesso.',
     })
   } catch (error) {
     console.error(error)
-    return res.status(500).json({ ok: false, error: 'Erro ao gerar chave.' })
+    return res.status(500).json({ ok: false, error: error.message })
   }
 })
 
+// LISTAR KEYS
 app.get('/api/admin/licenses', async (req, res) => {
   if (!requireAdmin(req, res)) return
+
   try {
-    const licenses = await readLicenses()
-    return res.json({ ok: true, licenses })
+    const { data, error } = await supabase
+      .from('licenses')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    return res.json({ ok: true, licenses: data })
   } catch (error) {
-    return res.status(500).json({ ok: false, error: 'Erro ao listar chaves.' })
+    return res.status(500).json({ ok: false, error: error.message })
   }
 })
 
+// ATIVAR KEY
 app.post('/api/activate-key', async (req, res) => {
   try {
     const { key, user } = req.body
@@ -201,54 +177,83 @@ app.post('/api/activate-key', async (req, res) => {
 
     const cleanedKey = cleanKey(key)
     const userEmail = String(user.email).trim().toLowerCase()
-    const licenses = await readLicenses()
-    const index = licenses.findIndex((license) => license.key === cleanedKey)
 
-    if (index === -1) {
+    const { data: license, error: findError } = await supabase
+      .from('licenses')
+      .select('*')
+      .eq('key', cleanedKey)
+      .single()
+
+    if (findError || !license) {
       return res.status(404).json({ ok: false, error: 'Chave inválida. Verifique e tente novamente.' })
     }
 
-    const license = licenses[index]
-
+    // Já ativa
     if (license.status === 'active') {
-      if (license.assignedEmail !== userEmail) {
+      if (license.assigned_email !== userEmail) {
         return res.status(403).json({ ok: false, error: 'Esta chave já está vinculada a outro e-mail.' })
       }
-      return res.json({ ok: true, message: 'Chave já estava ativa.', userUpdate: { premium: true, ...license.lockedProfile }, license })
+      return res.json({
+        ok: true,
+        message: 'Chave já estava ativa para este e-mail.',
+        userUpdate: {
+          premium: true,
+          accessKey: license.key,
+          premiumActivatedAt: license.activated_at,
+          premiumExpiresAt: license.expires_at,
+          lockedProfile: license.locked_profile,
+          ...license.locked_profile,
+        },
+        license,
+      })
     }
 
-    if (license.assignedEmail && license.assignedEmail !== userEmail) {
+    // Vinculada a outro email
+    if (license.assigned_email && license.assigned_email !== userEmail) {
       return res.status(403).json({ ok: false, error: 'Esta chave foi gerada para outro e-mail.' })
     }
 
     const now = new Date()
-    const expiresAt = addDays(now, license.daysValid || 180)
+    const expiresAt = addDays(now, license.days_valid || 180)
     const lockedProfile = normalizeLockedProfile(user)
 
-    licenses[index] = {
-      ...license,
-      status: 'active',
-      assignedEmail: userEmail,
-      lockedProfile,
-      activatedAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-    }
+    const { data: updated, error: updateError } = await supabase
+      .from('licenses')
+      .update({
+        status: 'active',
+        assigned_email: userEmail,
+        locked_profile: lockedProfile,
+        activated_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+      })
+      .eq('key', cleanedKey)
+      .select()
+      .single()
 
-    await writeLicenses(licenses)
+    if (updateError) {
+      return res.status(500).json({ ok: false, error: updateError.message })
+    }
 
     return res.json({
       ok: true,
       message: 'Chave Premium ativada com sucesso.',
-      userUpdate: { premium: true, accessKey: cleanedKey, premiumActivatedAt: now.toISOString(), premiumExpiresAt: expiresAt.toISOString(), lockedProfile, ...lockedProfile },
-      license: licenses[index],
+      userUpdate: {
+        premium: true,
+        accessKey: cleanedKey,
+        premiumActivatedAt: now.toISOString(),
+        premiumExpiresAt: expiresAt.toISOString(),
+        lockedProfile,
+        ...lockedProfile,
+      },
+      license: updated,
     })
   } catch (error) {
     console.error(error)
-    return res.status(500).json({ ok: false, error: 'Erro ao ativar chave.' })
+    return res.status(500).json({ ok: false, error: error.message })
   }
 })
 
-// ===================== ROTA PRINCIPAL: ENVIAR CANDIDATURA =====================
+// ===================== ENVIAR CANDIDATURA =====================
 app.post('/api/send-candidature', async (req, res) => {
   try {
     const {
@@ -264,7 +269,6 @@ app.post('/api/send-candidature', async (req, res) => {
 
     let emailAttachments = []
     if (attachments && attachments.length > 0) {
-      console.log('📥 Baixando anexos...')
       emailAttachments = await prepareAttachments(attachments)
     }
 
@@ -290,7 +294,7 @@ app.post('/api/send-candidature', async (req, res) => {
 
     if (employerTargetEmail && employerTargetEmail.includes('@')) {
       await resend.emails.send({
-        from: `"${candidateName} via FUTURE EUA H2B" <${FROM_EMAIL}>`,
+        from: `${candidateName} via FUTURE EUA H2B <${FROM_EMAIL}>`,
         to: [employerTargetEmail],
         replyTo: candidateEmail,
         subject: `Application: ${candidateName} — ${jobTitle}`,
@@ -308,7 +312,7 @@ app.post('/api/send-candidature', async (req, res) => {
     `
 
     await resend.emails.send({
-      from: `"FUTURE EUA H2B" <${FROM_EMAIL}>`,
+      from: `FUTURE EUA H2B <${FROM_EMAIL}>`,
       to: [candidateEmail],
       subject: `✅ Candidatura enviada — ${jobTitle}`,
       html: candidateHtml,
@@ -328,5 +332,6 @@ app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════')
   console.log(`✅ Backend rodando na porta ${PORT}`)
   console.log(`📧 Resend From: ${FROM_EMAIL}`)
+  console.log(`🗄️ Supabase: ${process.env.SUPABASE_URL ? 'Conectado' : 'NÃO CONFIGURADO'}`)
   console.log('═══════════════════════════════════════════')
 })
