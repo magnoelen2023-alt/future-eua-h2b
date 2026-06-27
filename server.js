@@ -1,11 +1,13 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import nodemailer from 'nodemailer'
+import { Resend } from 'resend' // Usando Resend em vez de Nodemailer
 import fs from 'fs/promises'
 import path from 'path'
 
 const app = express()
+
+// Configuração de CORS (permite o header do admin)
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -16,28 +18,11 @@ app.use(express.json())
 const PORT = process.env.PORT || 3001
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'MAGNO-ADMIN-2026'
 
-// ===================== CONFIGURAÇÃO CORRIGIDA (IPv4 + Porta 587) =====================
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,           // Mudado de 465 para 587
-  secure: false,       // Mudado para false (usa STARTTLS na porta 587)
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false
-  },
-  // FORÇA O USO DE IPv4 (Resolve o erro ENETUNREACH do Render)
-  family: 4, 
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 10
-})
+// ===================== CONFIGURAÇÃO DO RESEND =====================
+const resend = new Resend(process.env.RESEND_API_KEY)
+const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev'
 
+// ===================== ARQUIVO DE LICENÇAS =====================
 const LICENSES_FILE = path.resolve('licenses.json')
 
 async function ensureLicensesFile() {
@@ -109,15 +94,12 @@ function requireAdmin(req, res) {
 async function downloadFileFromUrl(url) {
   try {
     if (!url || url === 'null' || url === 'undefined') return null
-
     console.log(`📥 Baixando: ${url.substring(0, 70)}...`)
-
     const response = await fetch(url)
     if (!response.ok) {
       console.warn(`⚠️ Falha ao baixar (status ${response.status})`)
       return null
     }
-
     const arrayBuffer = await response.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     console.log(`✅ Baixado: ${(buffer.length / 1024).toFixed(1)} KB`)
@@ -138,12 +120,7 @@ async function prepareAttachments(attachments = []) {
         const urlPath = new URL(att.url).pathname
         const ext = urlPath.split('.').pop() || 'pdf'
         const filename = att.filename || `documento.${ext}`
-
-        prepared.push({
-          filename,
-          content: buffer,
-          contentType: ext === 'pdf' ? 'application/pdf' : 'application/octet-stream',
-        })
+        prepared.push({ filename, content: buffer })
         console.log(`📎 Anexo pronto: ${filename}`)
       }
     } catch (error) {
@@ -154,40 +131,132 @@ async function prepareAttachments(attachments = []) {
 }
 
 // ===================== ROTAS =====================
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, message: 'Backend Future EUA H2B rodando!' })
 })
 
-app.get('/api/admin/generate-key', async (req, res) => { /* ... mesma função anterior ... */ })
-app.get('/api/admin/licenses', async (req, res) => { /* ... mesma função anterior ... */ })
-app.post('/api/activate-key', async (req, res) => { /* ... mesma função anterior ... */ })
+// ROTA PARA GERAR KEY (ACESSO PELO CELULAR)
+// Exemplo: https://SEU-LINK.onrender.com/api/admin/generate-key?secret=MAGNO-ADMIN-2026&email=cliente@email.com
+app.get('/api/admin/generate-key', async (req, res) => {
+  if (!requireAdmin(req, res)) return
 
-// ===================== ROTA PRINCIPAL =====================
+  try {
+    const licenses = await readLicenses()
+    let key = generatePremiumKey()
+
+    while (licenses.some((license) => license.key === key)) {
+      key = generatePremiumKey()
+    }
+
+    const email = req.query.email ? String(req.query.email).toLowerCase() : ''
+    const days = parseInt(req.query.days) || 180
+
+    const license = {
+      key,
+      status: 'unused',
+      assignedEmail: email,
+      lockedProfile: null,
+      createdAt: new Date().toISOString(),
+      activatedAt: null,
+      expiresAt: null,
+      maxDaily: 100,
+      maxSeason: 3500,
+      daysValid: days,
+    }
+
+    licenses.push(license)
+    await writeLicenses(licenses)
+
+    console.log(`🔑 KEY GERADA: ${key} para ${email || 'N/A'}`)
+
+    return res.json({
+      ok: true,
+      key,
+      license,
+      message: 'Chave gerada com sucesso.',
+    })
+  } catch (error) {
+    console.error(error)
+    return res.status(500).json({ ok: false, error: 'Erro ao gerar chave.' })
+  }
+})
+
+app.get('/api/admin/licenses', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  try {
+    const licenses = await readLicenses()
+    return res.json({ ok: true, licenses })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: 'Erro ao listar chaves.' })
+  }
+})
+
+app.post('/api/activate-key', async (req, res) => {
+  try {
+    const { key, user } = req.body
+    if (!key || !user?.email) {
+      return res.status(400).json({ ok: false, error: 'Chave e e-mail são obrigatórios.' })
+    }
+
+    const cleanedKey = cleanKey(key)
+    const userEmail = String(user.email).trim().toLowerCase()
+    const licenses = await readLicenses()
+    const index = licenses.findIndex((license) => license.key === cleanedKey)
+
+    if (index === -1) {
+      return res.status(404).json({ ok: false, error: 'Chave inválida. Verifique e tente novamente.' })
+    }
+
+    const license = licenses[index]
+
+    if (license.status === 'active') {
+      if (license.assignedEmail !== userEmail) {
+        return res.status(403).json({ ok: false, error: 'Esta chave já está vinculada a outro e-mail.' })
+      }
+      return res.json({ ok: true, message: 'Chave já estava ativa.', userUpdate: { premium: true, ...license.lockedProfile }, license })
+    }
+
+    if (license.assignedEmail && license.assignedEmail !== userEmail) {
+      return res.status(403).json({ ok: false, error: 'Esta chave foi gerada para outro e-mail.' })
+    }
+
+    const now = new Date()
+    const expiresAt = addDays(now, license.daysValid || 180)
+    const lockedProfile = normalizeLockedProfile(user)
+
+    licenses[index] = {
+      ...license,
+      status: 'active',
+      assignedEmail: userEmail,
+      lockedProfile,
+      activatedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    }
+
+    await writeLicenses(licenses)
+
+    return res.json({
+      ok: true,
+      message: 'Chave Premium ativada com sucesso.',
+      userUpdate: { premium: true, accessKey: cleanedKey, premiumActivatedAt: now.toISOString(), premiumExpiresAt: expiresAt.toISOString(), lockedProfile, ...lockedProfile },
+      license: licenses[index],
+    })
+  } catch (error) {
+    console.error(error)
+    return res.status(500).json({ ok: false, error: 'Erro ao ativar chave.' })
+  }
+})
+
+// ===================== ROTA PRINCIPAL: ENVIAR CANDIDATURA =====================
 app.post('/api/send-candidature', async (req, res) => {
   try {
     const {
-      candidateName,
-      candidateEmail,
-      candidatePhone,
-      employerName,
-      employerEmail,
-      jobTitle,
-      jobLocation,
-      caseNumber,
-      messageBody,
-      attachments,
+      candidateName, candidateEmail, candidatePhone, employerName, employerEmail,
+      jobTitle, jobLocation, caseNumber, messageBody, attachments,
     } = req.body
 
-    console.log('═══════════════════════════════════════════')
-    console.log('📨 NOVA CANDIDATURA')
-    console.log('═══════════════════════════════════════════')
-    console.log('👤 Candidato:', candidateName)
-    console.log('📧 Email candidato:', candidateEmail)
-    console.log('📞 Telefone:', candidatePhone)
-    console.log('🏢 Empregador:', employerName)
-    console.log('📧 Email empregador:', employerEmail)
-    console.log('💼 Vaga:', jobTitle)
-    console.log('📎 Anexos recebidos:', attachments?.length || 0)
+    console.log('📨 NOVA CANDIDATURA:', candidateName, jobTitle)
 
     if (!candidateEmail || !jobTitle) {
       return res.status(400).json({ ok: false, error: 'Dados obrigatórios faltando.' })
@@ -197,43 +266,56 @@ app.post('/api/send-candidature', async (req, res) => {
     if (attachments && attachments.length > 0) {
       console.log('📥 Baixando anexos...')
       emailAttachments = await prepareAttachments(attachments)
-      console.log(`✅ ${emailAttachments.length} anexo(s) preparados`)
     }
 
-    const employerHtml = `...` // (mantive o HTML bonito que você já tinha)
+    const employerHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222;">
+        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
+          <h2>Job Application — ${jobTitle}</h2>
+        </div>
+        <div style="padding: 24px; border: 1px solid #e0e0e0;">
+          <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
+          <p>${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
+          <h3>Candidate:</h3>
+          <p><strong>${candidateName}</strong> (${candidateEmail} / ${candidatePhone || 'N/A'})</p>
+          <p><strong>Position:</strong> ${jobTitle} at ${jobLocation || 'N/A'}</p>
+          <p><strong>Case #:</strong> ${caseNumber || 'N/A'}</p>
+        </div>
+      </div>
+    `
 
     const rawEmployerEmail = String(employerEmail || '').trim()
     const testEmployerEmail = String(process.env.TEST_EMPLOYER_EMAIL || '').trim()
     const employerTargetEmail = testEmployerEmail || rawEmployerEmail
-    const isTestMode = Boolean(testEmployerEmail)
-
-    console.log('📧 Enviando para:', employerTargetEmail)
-    console.log('🧪 Modo teste:', isTestMode ? 'ATIVO' : 'DESATIVADO')
 
     if (employerTargetEmail && employerTargetEmail.includes('@')) {
-      await transporter.sendMail({
-        from: `"${candidateName} via FUTURE EUA H2B" <${process.env.GMAIL_USER}>`,
-        to: employerTargetEmail,
+      await resend.emails.send({
+        from: `"${candidateName} via FUTURE EUA H2B" <${FROM_EMAIL}>`,
+        to: [employerTargetEmail],
         replyTo: candidateEmail,
-        subject: `${isTestMode ? '[TESTE] ' : ''}Application: ${candidateName} — ${jobTitle}`,
+        subject: `Application: ${candidateName} — ${jobTitle}`,
         html: employerHtml,
-        attachments: emailAttachments,
+        attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
       })
-      console.log(`✅ E-mail enviado para empregador com ${emailAttachments.length} anexo(s)`)
+      console.log(`✅ Email enviado para: ${employerTargetEmail}`)
     }
 
-    // E-mail de confirmação para o candidato
-    const candidateHtml = `...` // (mantive o HTML bonito)
+    const candidateHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto;">
+        <h2>✅ Candidatura enviada!</h2>
+        <p>Olá ${candidateName}, sua candidatura para ${jobTitle} foi enviada com sucesso.</p>
+      </div>
+    `
 
-    await transporter.sendMail({
-      from: `"FUTURE EUA H2B" <${process.env.GMAIL_USER}>`,
-      to: candidateEmail,
+    await resend.emails.send({
+      from: `"FUTURE EUA H2B" <${FROM_EMAIL}>`,
+      to: [candidateEmail],
       subject: `✅ Candidatura enviada — ${jobTitle}`,
       html: candidateHtml,
-      attachments: emailAttachments,
+      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
     })
+    console.log(`✅ Confirmação enviada para: ${candidateEmail}`)
 
-    console.log('✅ CANDIDATURA PROCESSADA COM SUCESSO')
     return res.json({ ok: true, message: 'E-mails enviados com sucesso!' })
 
   } catch (error) {
@@ -244,8 +326,7 @@ app.post('/api/send-candidature', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════')
-  console.log(`✅ Backend rodando em http://localhost:${PORT}`)
-  console.log(`📧 Gmail: ${process.env.GMAIL_USER}`)
-  console.log(`🧪 Empregador teste: ${process.env.TEST_EMPLOYER_EMAIL || 'DESATIVADO'}`)
+  console.log(`✅ Backend rodando na porta ${PORT}`)
+  console.log(`📧 Resend From: ${FROM_EMAIL}`)
   console.log('═══════════════════════════════════════════')
 })

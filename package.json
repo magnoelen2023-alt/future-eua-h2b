@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "server": "node server.js",
-    "dev:all": "node server.js & vite",
+    "start": "node server.js",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -16,11 +16,10 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.11",
     "papaparse": "^5.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "resend": "^6.12.4"
+    "resend": "^6.16.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
