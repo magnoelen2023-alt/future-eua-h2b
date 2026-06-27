@@ -1,0 +1,2 @@
+Site: https://future-eua-h2b.vercel.app
+API: https://future-eua-h2b-api.onrender.com
