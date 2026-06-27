@@ -110,15 +110,13 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, message: 'Backend Future EUA H2B rodando!' })
 })
 
-// GERAR KEY (acesse pelo celular)
+// GERAR KEY
 app.get('/api/admin/generate-key', async (req, res) => {
   if (!requireAdmin(req, res)) return
-
   try {
     const email = req.query.email ? String(req.query.email).toLowerCase() : ''
     const days = parseInt(req.query.days) || 180
     const key = generatePremiumKey()
-
     const { data, error } = await supabase
       .from('licenses')
       .insert([{
@@ -129,23 +127,10 @@ app.get('/api/admin/generate-key', async (req, res) => {
         max_daily: 100,
         max_season: 3500,
       }])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Erro Supabase:', error)
-      return res.status(500).json({ ok: false, error: error.message })
-    }
-
-    console.log(`🔑 KEY GERADA: ${key} para ${email}`)
-    return res.json({
-      ok: true,
-      key,
-      license: data,
-      message: 'Chave gerada com sucesso.',
-    })
+      .select().single()
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    return res.json({ ok: true, key, license: data })
   } catch (error) {
-    console.error(error)
     return res.status(500).json({ ok: false, error: error.message })
   }
 })
@@ -153,13 +138,9 @@ app.get('/api/admin/generate-key', async (req, res) => {
 // LISTAR KEYS
 app.get('/api/admin/licenses', async (req, res) => {
   if (!requireAdmin(req, res)) return
-
   try {
     const { data, error } = await supabase
-      .from('licenses')
-      .select('*')
-      .order('created_at', { ascending: false })
-
+      .from('licenses').select('*').order('created_at', { ascending: false })
     if (error) return res.status(500).json({ ok: false, error: error.message })
     return res.json({ ok: true, licenses: data })
   } catch (error) {
@@ -171,89 +152,31 @@ app.get('/api/admin/licenses', async (req, res) => {
 app.post('/api/activate-key', async (req, res) => {
   try {
     const { key, user } = req.body
-    if (!key || !user?.email) {
-      return res.status(400).json({ ok: false, error: 'Chave e e-mail são obrigatórios.' })
-    }
-
+    if (!key || !user?.email) return res.status(400).json({ ok: false, error: 'Dados faltantes.' })
     const cleanedKey = cleanKey(key)
-    const userEmail = String(user.email).trim().toLowerCase()
-
-    const { data: license, error: findError } = await supabase
-      .from('licenses')
-      .select('*')
-      .eq('key', cleanedKey)
-      .single()
-
-    if (findError || !license) {
-      return res.status(404).json({ ok: false, error: 'Chave inválida. Verifique e tente novamente.' })
-    }
-
-    // Já ativa
+    const userEmail = user.email.trim().toLowerCase()
+    const { data: license, error: findError } = await supabase.from('licenses').select('*').eq('key', cleanedKey).single()
+    if (findError || !license) return res.status(404).json({ ok: false, error: 'Chave inválida.' })
+    
     if (license.status === 'active') {
-      if (license.assigned_email !== userEmail) {
-        return res.status(403).json({ ok: false, error: 'Esta chave já está vinculada a outro e-mail.' })
-      }
-      return res.json({
-        ok: true,
-        message: 'Chave já estava ativa para este e-mail.',
-        userUpdate: {
-          premium: true,
-          accessKey: license.key,
-          premiumActivatedAt: license.activated_at,
-          premiumExpiresAt: license.expires_at,
-          lockedProfile: license.locked_profile,
-          ...license.locked_profile,
-        },
-        license,
-      })
-    }
-
-    // Vinculada a outro email
-    if (license.assigned_email && license.assigned_email !== userEmail) {
-      return res.status(403).json({ ok: false, error: 'Esta chave foi gerada para outro e-mail.' })
+      if (license.assigned_email !== userEmail) return res.status(403).json({ ok: false, error: 'Chave de outro usuário.' })
+      return res.json({ ok: true, license })
     }
 
     const now = new Date()
     const expiresAt = addDays(now, license.days_valid || 180)
-    const lockedProfile = normalizeLockedProfile(user)
+    const { data: updated, error: updateError } = await supabase.from('licenses').update({
+      status: 'active', assigned_email: userEmail, locked_profile: normalizeLockedProfile(user), activated_at: now.toISOString(), expires_at: expiresAt.toISOString()
+    }).eq('key', cleanedKey).select().single()
 
-    const { data: updated, error: updateError } = await supabase
-      .from('licenses')
-      .update({
-        status: 'active',
-        assigned_email: userEmail,
-        locked_profile: lockedProfile,
-        activated_at: now.toISOString(),
-        expires_at: expiresAt.toISOString(),
-      })
-      .eq('key', cleanedKey)
-      .select()
-      .single()
-
-    if (updateError) {
-      return res.status(500).json({ ok: false, error: updateError.message })
-    }
-
-    return res.json({
-      ok: true,
-      message: 'Chave Premium ativada com sucesso.',
-      userUpdate: {
-        premium: true,
-        accessKey: cleanedKey,
-        premiumActivatedAt: now.toISOString(),
-        premiumExpiresAt: expiresAt.toISOString(),
-        lockedProfile,
-        ...lockedProfile,
-      },
-      license: updated,
-    })
+    if (updateError) return res.status(500).json({ ok: false, error: updateError.message })
+    return res.json({ ok: true, license: updated })
   } catch (error) {
-    console.error(error)
     return res.status(500).json({ ok: false, error: error.message })
   }
 })
 
-// ===================== ENVIAR CANDIDATURA =====================
+// ===================== ROTA PRINCIPAL: ENVIAR CANDIDATURA =====================
 app.post('/api/send-candidature', async (req, res) => {
   try {
     const {
@@ -261,30 +184,28 @@ app.post('/api/send-candidature', async (req, res) => {
       jobTitle, jobLocation, caseNumber, messageBody, attachments,
     } = req.body
 
-    console.log('📨 NOVA CANDIDATURA:', candidateName, jobTitle)
+    console.log(`📨 PROCESSANDO: ${candidateName} -> ${employerName}`)
 
     if (!candidateEmail || !jobTitle) {
       return res.status(400).json({ ok: false, error: 'Dados obrigatórios faltando.' })
     }
 
-    let emailAttachments = []
-    if (attachments && attachments.length > 0) {
-      emailAttachments = await prepareAttachments(attachments)
-    }
+    let emailAttachments = await prepareAttachments(attachments)
 
+    // 1. HTML PARA O EMPREGADOR
     const employerHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222;">
-        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
-          <h2>Job Application — ${jobTitle}</h2>
-        </div>
-        <div style="padding: 24px; border: 1px solid #e0e0e0;">
-          <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
-          <p>${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
-          <h3>Candidate:</h3>
-          <p><strong>${candidateName}</strong> (${candidateEmail} / ${candidatePhone || 'N/A'})</p>
-          <p><strong>Position:</strong> ${jobTitle} at ${jobLocation || 'N/A'}</p>
-          <p><strong>Case #:</strong> ${caseNumber || 'N/A'}</p>
-        </div>
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
+        <p>${messageBody || 'I am writing to express my interest in the seasonal position available at your company.'}</p>
+        <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
+        <p><strong>Candidate Details:</strong></p>
+        <ul>
+          <li><strong>Name:</strong> ${candidateName}</li>
+          <li><strong>Email:</strong> ${candidateEmail}</li>
+          <li><strong>Phone:</strong> ${candidatePhone || 'Not provided'}</li>
+          <li><strong>Position:</strong> ${jobTitle}</li>
+        </ul>
+        <p style="font-size:11px; color:#999;">Sent via Future EUA H2B Platform</p>
       </div>
     `
 
@@ -292,33 +213,51 @@ app.post('/api/send-candidature', async (req, res) => {
     const testEmployerEmail = String(process.env.TEST_EMPLOYER_EMAIL || '').trim()
     const employerTargetEmail = testEmployerEmail || rawEmployerEmail
 
+    // ENVIAR PARA EMPREGADOR
     if (employerTargetEmail && employerTargetEmail.includes('@')) {
       await resend.emails.send({
-        from: `${candidateName} via FUTURE EUA H2B <${FROM_EMAIL}>`,
+        from: `${candidateName} <${FROM_EMAIL}>`,
         to: [employerTargetEmail],
-        replyTo: candidateEmail,
+        reply_to: candidateEmail, // <--- RESPOSTAS VÃO PARA O CLIENTE
         subject: `Application: ${candidateName} — ${jobTitle}`,
         html: employerHtml,
         attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
       })
-      console.log(`✅ Email enviado para: ${employerTargetEmail}`)
+      console.log(`✅ Enviado ao empregador. Respostas para: ${candidateEmail}`)
     }
 
+    // 2. HTML PARA O CLIENTE (CONFIRMAÇÃO)
     const candidateHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto;">
-        <h2>✅ Candidatura enviada!</h2>
-        <p>Olá ${candidateName}, sua candidatura para ${jobTitle} foi enviada com sucesso.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
+          <h2 style="margin: 0;">Candidatura Enviada!</h2>
+        </div>
+        <div style="padding: 20px;">
+          <p>Olá <strong>${candidateName}</strong>,</p>
+          <p>Confirmamos que sua candidatura para a vaga <strong>${jobTitle}</strong> foi enviada com sucesso para <strong>${employerName}</strong>.</p>
+          
+          <div style="background: #f4f7ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Destinatário:</strong> ${rawEmployerEmail}</p>
+            <p style="margin: 5px 0 0;"><strong>Data:</strong> ${new Date().toLocaleString('pt-BR')}</p>
+          </div>
+
+          <p><strong>O que acontece agora?</strong></p>
+          <p>Se o empregador responder ao seu e-mail ou tiver uma resposta automática de recebimento, ela chegará <strong>diretamente na sua caixa de entrada</strong> em <em>${candidateEmail}</em>.</p>
+          
+          <p style="color: #666; font-size: 13px; margin-top: 30px;">
+            Atenciosamente,<br>Equipe Future EUA H2B
+          </p>
+        </div>
       </div>
     `
 
     await resend.emails.send({
-      from: `FUTURE EUA H2B <${FROM_EMAIL}>`,
+      from: `Future EUA H2B <${FROM_EMAIL}>`,
       to: [candidateEmail],
-      subject: `✅ Candidatura enviada — ${jobTitle}`,
+      subject: `✅ Candidatura Enviada: ${jobTitle} na empresa ${employerName}`,
       html: candidateHtml,
-      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
     })
-    console.log(`✅ Confirmação enviada para: ${candidateEmail}`)
+    console.log(`✅ Confirmação enviada para o cliente: ${candidateEmail}`)
 
     return res.json({ ok: true, message: 'E-mails enviados com sucesso!' })
 
@@ -330,8 +269,6 @@ app.post('/api/send-candidature', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════')
-  console.log(`✅ Backend rodando na porta ${PORT}`)
-  console.log(`📧 Resend From: ${FROM_EMAIL}`)
-  console.log(`🗄️ Supabase: ${process.env.SUPABASE_URL ? 'Conectado' : 'NÃO CONFIGURADO'}`)
+  console.log(`✅ Servidor online na porta ${PORT}`)
   console.log('═══════════════════════════════════════════')
 })
