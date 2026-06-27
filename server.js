@@ -16,11 +16,11 @@ app.use(express.json())
 const PORT = process.env.PORT || 3001
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'MAGNO-ADMIN-2026'
 
-// ===================== CONFIGURAÇÃO MELHORADA DO GMAIL =====================
+// ===================== CONFIGURAÇÃO CORRIGIDA (IPv4 + Porta 587) =====================
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  port: 587,           // Mudado de 465 para 587
+  secure: false,       // Mudado para false (usa STARTTLS na porta 587)
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_PASS,
@@ -28,9 +28,11 @@ const transporter = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: false
   },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
-  socketTimeout: 20000,
+  // FORÇA O USO DE IPv4 (Resolve o erro ENETUNREACH do Render)
+  family: 4, 
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
   pool: true,
   maxConnections: 5,
   maxMessages: 10
