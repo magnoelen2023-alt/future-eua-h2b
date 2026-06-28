@@ -257,19 +257,55 @@ app.post('/api/send-candidature', async (req, res) => {
       emailAttachments = await prepareAttachments(safeAttachments)
     }
 
-    const employerHtml = `
-      <div style="font-family: Arial, sans-serif; color: #333;">
-        <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
-        <p>${messageBody || 'I am writing to express my interest in the seasonal position available at your company.'}</p>
-        <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
-        <p><strong>Candidate Details:</strong></p>
-        <ul>
-          <li><strong>Name:</strong> ${candidateName}</li>
-          <li><strong>Email:</strong> ${candidateEmail}</li>
-          <li><strong>Phone:</strong> ${candidatePhone || 'Not provided'}</li>
-          <li><strong>Position:</strong> ${jobTitle}</li>
-        </ul>
-        <p style="font-size:11px; color:#999;">Sent via Future EUA H2B Platform</p>
+    // HTML RICO (IGUAL PARA EMPREGADOR E CÓPIA DO CANDIDATO)
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
+          <h2 style="margin: 0;">Job Application — ${jobTitle}</h2>
+          <p style="margin: 5px 0 0; opacity: 0.9;">H-2B Visa Seasonal Program</p>
+        </div>
+        
+        <div style="padding: 24px;">
+          <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
+          
+          <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #1a3a8f;">
+            <p style="margin: 0; white-space: pre-line;">${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
+          </div>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          
+          <h3 style="color: #1a3a8f; margin-bottom: 12px;">📋 Position Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 6px 0; color: #666;">Position:</td><td style="padding: 6px 0;"><strong>${jobTitle}</strong></td></tr>
+            <tr><td style="padding: 6px 0; color: #666;">Location:</td><td style="padding: 6px 0;"><strong>${jobLocation || '—'}</strong></td></tr>
+            <tr><td style="padding: 6px 0; color: #666;">Case Number:</td><td style="padding: 6px 0;"><strong>${caseNumber || '—'}</strong></td></tr>
+          </table>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          
+          <h3 style="color: #1a3a8f; margin-bottom: 12px;">👤 Candidate Information</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 6px 0; color: #666;">Name:</td><td style="padding: 6px 0;"><strong>${candidateName}</strong></td></tr>
+            <tr><td style="padding: 6px 0; color: #666;">Email:</td><td style="padding: 6px 0;"><strong><a href="mailto:${candidateEmail}" style="color: #1a3a8f;">${candidateEmail}</a></strong></td></tr>
+            <tr><td style="padding: 6px 0; color: #666;">Phone:</td><td style="padding: 6px 0;"><strong>${candidatePhone || '—'}</strong></td></tr>
+          </table>
+          
+          ${emailAttachments.length > 0 ? `
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          <h3 style="color: #1a3a8f; margin-bottom: 12px;">📎 Attached Documents</h3>
+          <ul style="padding-left: 20px;">
+            ${emailAttachments.map(att => `<li style="padding: 4px 0;">${att.filename}</li>`).join('')}
+          </ul>
+          ` : '<p style="color: #f59e0b;">⚠️ No documents were attached.</p>'}
+          
+          <br />
+          <p>Sincerely,<br /><strong>${candidateName}</strong></p>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="color: #999; font-size: 12px; text-align: center;">
+            Sent via FUTURE EUA H2B Platform — H-2B Visa Seasonal Employment
+          </p>
+        </div>
       </div>
     `
 
@@ -277,52 +313,44 @@ app.post('/api/send-candidature', async (req, res) => {
     const testEmployerEmail = String(process.env.TEST_EMPLOYER_EMAIL || '').trim()
     const targetEmail = testEmployerEmail || rawEmployerEmail
 
-    // ENVIO EMPREGADOR
+    // 1. ENVIO PARA O EMPREGADOR (Se houver e-mail válido)
     if (targetEmail && targetEmail.includes('@')) {
       await resend.emails.send({
         from: `${candidateName} <${FROM_EMAIL}>`,
         to: [targetEmail],
-        reply_to: candidateEmail,
+        reply_to: candidateEmail, // Garante que respostas automáticas voltem ao candidato
         subject: `Application: ${candidateName} — ${jobTitle}`,
-        html: employerHtml,
+        html: emailHtml,
         attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
       })
     }
 
-    // ENVIO CANDIDATO (CONFIRMAÇÃO)
-    const candidateHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
-        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
-          <h2 style="margin: 0;">Candidatura Enviada!</h2>
-        </div>
-        <div style="padding: 20px;">
-          <p>Olá <strong>${candidateName}</strong>,</p>
-          <p>Confirmamos que sua candidatura para a vaga <strong>${jobTitle}</strong> foi enviada com sucesso para <strong>${employerName}</strong>.</p>
-          <div style="background: #f4f7ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p style="margin: 0;"><strong>Destinatário:</strong> ${rawEmployerEmail}</p>
-          </div>
-          <p>Se o empregador responder, a mensagem chegará <strong>diretamente na sua caixa de entrada</strong> em <em>${candidateEmail}</em>.</p>
-          <p style="color: #666; font-size: 13px; margin-top: 30px;">Atenciosamente,<br>Equipe Future EUA H2B</p>
-        </div>
+    // 2. ENVIO PARA O CANDIDATO (CÓPIA ESPELHO COM AVISO NO TOPO)
+    const candidateNotificationHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto 20px; background: #e6f4ea; border-left: 5px solid #1a3a8f; padding: 15px; border-radius: 5px;">
+        <h3 style="margin: 0 0 10px; color: #1a3a8f;">✅ Cópia da Candidatura Enviada</h3>
+        <p style="margin: 0; font-size: 14px; color: #333;">Olá <strong>${candidateName}</strong>, este é um espelho exato do e-mail que o sistema enviou para <strong>${employerName}</strong> (${rawEmployerEmail}). Os anexos também foram enviados.</p>
+        <p style="margin: 10px 0 0; font-size: 13px; color: #555;"><em>Qualquer resposta do empregador será direcionada para sua caixa de entrada.</em></p>
       </div>
+      ${emailHtml}
     `
 
     await resend.emails.send({
       from: `Future EUA H2B <${FROM_EMAIL}>`,
       to: [candidateEmail],
-      subject: `✅ Candidatura Enviada: ${jobTitle} na empresa ${employerName}`,
-      html: candidateHtml,
+      subject: `[CÓPIA] Application: ${candidateName} — ${jobTitle}`,
+      html: candidateNotificationHtml,
+      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
     })
 
-    console.log(`✅ E-mails disparados com sucesso!`)
+    console.log(`✅ E-mails disparados com sucesso (Empregador + Cópia Cliente)!`)
 
-    // Incrementa limite diário (PROTEGIDO COM TRY/CATCH)
+    // Incrementa limite diário
     let newCount = currentCount
     if (licenseKey) {
       newCount = await incrementDailyCount(licenseKey, candidateEmail, currentCount)
     }
 
-    // Sempre retorna 200 OK se chegou até aqui
     return res.json({ 
       ok: true, 
       message: 'E-mails enviados com sucesso!',
