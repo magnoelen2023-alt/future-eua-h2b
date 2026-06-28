@@ -38,18 +38,12 @@ const supabase = createClient(
 async function getDailyCount(licenseKey) {
   if (!licenseKey) return 0
   const today = new Date().toISOString().split('T')[0]
-
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from('daily_sends')
     .select('count')
     .eq('license_key', licenseKey)
     .eq('send_date', today)
     .maybeSingle()
-
-  if (error) {
-    console.error('Erro getDailyCount:', error.message)
-    return 0
-  }
   return data?.count || 0
 }
 
@@ -162,71 +156,7 @@ async function prepareAttachments(attachments = []) {
 
 // ===================== ROTAS =====================
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: 'Backend v5 - Gmail SMTP + 500/dia por usuário' })
-})
-
-// GERAR KEY
-app.get('/api/admin/generate-key', async (req, res) => {
-  if (!requireAdmin(req, res)) return
-  try {
-    const email = (req.query.email || '').toLowerCase()
-    const days = parseInt(req.query.days) || 180
-    const key = generatePremiumKey()
-    const { data, error } = await supabase
-      .from('licenses')
-      .insert([{
-        key,
-        status: 'unused',
-        assigned_email: email,
-        days_valid: days,
-        max_daily: 500
-      }])
-      .select()
-      .single()
-    if (error) return res.status(500).json({ ok: false, error: error.message })
-    return res.json({ ok: true, key, license: data })
-  } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message })
-  }
-})
-
-// LISTAR KEYS
-app.get('/api/admin/licenses', async (req, res) => {
-  if (!requireAdmin(req, res)) return
-  const { data } = await supabase.from('licenses').select('*').order('created_at', { ascending: false })
-  return res.json({ ok: true, licenses: data })
-})
-
-// ATIVAR KEY
-app.post('/api/activate-key', async (req, res) => {
-  try {
-    const { key, user } = req.body
-    if (!key || !user?.email) return res.status(400).json({ ok: false, error: 'Dados faltantes.' })
-    const cleanedKey = cleanKey(key)
-    const userEmail = user.email.trim().toLowerCase()
-    const { data: license, error: findError } = await supabase.from('licenses').select('*').eq('key', cleanedKey).single()
-    if (findError || !license) return res.status(404).json({ ok: false, error: 'Chave inválida.' })
-    
-    if (license.status === 'active') {
-      if (license.assigned_email !== userEmail) return res.status(403).json({ ok: false, error: 'Chave de outro usuário.' })
-      return res.json({ ok: true, license })
-    }
-
-    const now = new Date()
-    const expiresAt = addDays(now, license.days_valid || 180)
-    const { data: updated, error: updateError } = await supabase.from('licenses').update({
-      status: 'active',
-      assigned_email: userEmail,
-      locked_profile: normalizeLockedProfile(user),
-      activated_at: now.toISOString(),
-      expires_at: expiresAt.toISOString()
-    }).eq('key', cleanedKey).select().single()
-
-    if (updateError) return res.status(500).json({ ok: false, error: updateError.message })
-    return res.json({ ok: true, license: updated })
-  } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message })
-  }
+  res.json({ ok: true, message: 'Backend v5 - Teste com Gmail SMTP' })
 })
 
 // ===================== ENVIO DE CANDIDATURA =====================
@@ -238,10 +168,11 @@ app.post('/api/send-candidature', async (req, res) => {
     } = req.body
 
     console.log('═══════════════════════════════════════════')
-    console.log('📨 NOVA CANDIDATURA')
+    console.log('📨 NOVA CANDIDATURA RECEBIDA')
     console.log('👤 Candidato:', candidateName)
-    console.log('📧 Email:', candidateEmail)
+    console.log('📧 Email candidato:', candidateEmail)
     console.log('🏢 Empregador:', employerName)
+    console.log('📧 Email empregador:', employerEmail)
     console.log('🔑 LicenseKey:', licenseKey)
     console.log('═══════════════════════════════════════════')
 
@@ -259,27 +190,39 @@ app.post('/api/send-candidature', async (req, res) => {
     const testEmployerEmail = String(process.env.TEST_EMPLOYER_EMAIL || '').trim()
     const employerTargetEmail = testEmployerEmail || rawEmployerEmail
 
+    // ===================== E-MAIL PARA O EMPREGADOR =====================
     const employerHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222;">
-        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
-          <h2>Job Application — ${jobTitle}</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #222;">
+        <div style="background: #1a3a8f; color: white; padding: 25px; text-align: center;">
+          <h2 style="margin: 0;">Nova Candidatura Recebida</h2>
+          <p style="margin: 8px 0 0; opacity: 0.9;">H-2B Visa Seasonal Program</p>
         </div>
-        <div style="padding: 24px; border: 1px solid #e0e0e0;">
+        <div style="padding: 30px; border: 1px solid #e0e0e0; border-top: none;">
           <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
-          <p>${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-          <h3>Candidate Information</h3>
+          <p>${messageBody || 'I am writing to express my strong interest in the seasonal position available at your company. I am available and ready to work.'}</p>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 25px 0;">
+          
+          <h3 style="color: #1a3a8f;">Candidate Information</h3>
           <p><strong>Name:</strong> ${candidateName}</p>
           <p><strong>Email:</strong> ${candidateEmail}</p>
-          <p><strong>Phone:</strong> ${candidatePhone || 'N/A'}</p>
+          <p><strong>Phone:</strong> ${candidatePhone || 'Not provided'}</p>
+          <p><strong>Position:</strong> ${jobTitle}</p>
+          <p><strong>Location:</strong> ${jobLocation || 'Not informed'}</p>
+          
+          ${emailAttachments.length > 0 ? `
+          <hr style="border: none; border-top: 1px solid #eee; margin: 25px 0;">
+          <h3 style="color: #1a3a8f;">Attached Documents</h3>
+          <ul>${emailAttachments.map(a => `<li>${a.filename}</li>`).join('')}</ul>` : ''}
+          
+          <p style="margin-top: 30px; color: #555;">Sincerely,<br><strong>${candidateName}</strong></p>
         </div>
       </div>
     `
 
-    // Envio para o empregador
     if (employerTargetEmail && employerTargetEmail.includes('@')) {
       await transporter.sendMail({
-        from: `"${candidateName} via FUTURE EUA H2B" <${process.env.GMAIL_USER}>`,
+        from: `"${candidateName}" <${process.env.GMAIL_USER}>`,
         to: employerTargetEmail,
         replyTo: candidateEmail,
         subject: `Application: ${candidateName} — ${jobTitle}`,
@@ -289,25 +232,36 @@ app.post('/api/send-candidature', async (req, res) => {
       console.log(`✅ E-mail enviado para empregador: ${employerTargetEmail}`)
     }
 
-    // Confirmação para o cliente
+    // ===================== CONFIRMAÇÃO PARA O CANDIDATO =====================
     const candidateHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto;">
-        <h2>✅ Candidatura enviada com sucesso!</h2>
-        <p>Olá <strong>${candidateName}</strong>,</p>
-        <p>Sua candidatura para <strong>${jobTitle}</strong> na empresa <strong>${employerName}</strong> foi enviada.</p>
-        <p><strong>Envios hoje:</strong> ${currentCount + 1} de ${DAILY_LIMIT}</p>
-        <p>Qualquer resposta do empregador chegará diretamente no seu e-mail.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto;">
+        <div style="background: #16a34a; color: white; padding: 25px; text-align: center;">
+          <h2 style="margin: 0;">✅ Candidatura Enviada com Sucesso!</h2>
+        </div>
+        <div style="padding: 30px; border: 1px solid #e0e0e0; border-top: none;">
+          <p>Olá <strong>${candidateName}</strong>,</p>
+          <p>Sua candidatura para a vaga de <strong>${jobTitle}</strong> na empresa <strong>${employerName}</strong> foi enviada com sucesso.</p>
+          
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Envios hoje:</strong> ${currentCount + 1} de ${DAILY_LIMIT}</p>
+            <p><strong>Destinatário:</strong> ${employerTargetEmail}</p>
+          </div>
+
+          <p><strong>Importante:</strong> Qualquer resposta (automática ou manual) do empregador chegará diretamente na sua caixa de entrada.</p>
+          
+          <p style="color: #555; margin-top: 30px;">Atenciosamente,<br>Equipe Future EUA H2B</p>
+        </div>
       </div>
     `
 
     await transporter.sendMail({
-      from: `"FUTURE EUA H2B" <${process.env.GMAIL_USER}>`,
+      from: `"Future EUA H2B" <${process.env.GMAIL_USER}>`,
       to: candidateEmail,
       subject: `✅ Candidatura enviada — ${jobTitle}`,
       html: candidateHtml,
       attachments: emailAttachments,
     })
-    console.log(`✅ Confirmação enviada para: ${candidateEmail}`)
+    console.log(`✅ Confirmação enviada para o candidato: ${candidateEmail}`)
 
     const newCount = await incrementDailyCount(licenseKey, candidateEmail)
 
@@ -328,7 +282,8 @@ app.post('/api/send-candidature', async (req, res) => {
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════')
   console.log(`✅ Backend v5 rodando na porta ${PORT}`)
-  console.log(`📧 Gmail: ${process.env.GMAIL_USER}`)
-  console.log(`📊 Limite: ${DAILY_LIMIT} envios/dia POR USUÁRIO`)
+  console.log(`📧 Enviando de: ${process.env.GMAIL_USER}`)
+  console.log(`🧪 TEST_EMPLOYER_EMAIL: ${process.env.TEST_EMPLOYER_EMAIL || 'DESATIVADO'}`)
+  console.log(`📊 Limite diário: ${DAILY_LIMIT} por usuário`)
   console.log('═══════════════════════════════════════════')
 })
