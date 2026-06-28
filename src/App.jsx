@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import Papa from 'papaparse'
 import { supabase } from './supabase'
 
@@ -7,14 +7,7 @@ const DEMO_LIMIT = 10
 const FREE_ACCESS_KEY = 'FREE-H2B-2026'
 const CONTACT_LINK = 'https://wa.me/5575999866105?text=Olá,%20quero%20comprar%20a%20chave%20Premium.%20Meu%20e-mail%20é:%20'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-const STORAGE_KEY = 'future-eua-h2b-final-free'
 const USER_SESSION_KEY = 'h2b-user-session'
-
-// Gera chave única de storage por usuário (impede burlar o limite deslogando)
-function getUserStorageKey(email) {
-  if (!email) return STORAGE_KEY
-  return STORAGE_KEY + '-' + String(email).toLowerCase().trim()
-}
 
 const seasons = [
   { id: 'winter-2025', label: '❄ Inverno 2025', short: 'Inverno', csvFile: '/vagas_inverno_2025_h2b.csv' },
@@ -78,20 +71,13 @@ function parseJobFromCsv(row, index, seasonId) {
   const startDate = formatDate(getRowValue(row, ['Data de início', 'Data de inicio']))
   const endDate = formatDate(getRowValue(row, ['Data de fim']))
   const agent = getRowValue(row, ['Nome do advogado do agente'])
-
   return {
-    seasonId,
-    id: `${seasonId}-${caseNumber || index}`,
-    number: index + 1,
-    title: title || 'Vaga sem título',
-    category: detectCategory(title),
-    employer: employer || 'Empregador',
-    city, state,
+    seasonId, id: `${seasonId}-${caseNumber || index}`, number: index + 1,
+    title: title || 'Vaga sem título', category: detectCategory(title),
+    employer: employer || 'Empregador', city, state,
     location: city && state ? `${city}, ${state}` : (city || state || 'EUA'),
     fullLocation: city && state ? `${city}, ${state}, USA` : 'Estados Unidos',
-    available: 1,
-    startDate, endDate,
-    wage: formatWageValue(wageRaw),
+    available: 1, startDate, endDate, wage: formatWageValue(wageRaw),
     wageDetail: wageRaw ? `US$ ${wageRaw} por hora.` : 'Salário a combinar.',
     caseNumber, contact, phone, visaType, agent,
     description: description || 'Descrição não informada.',
@@ -101,14 +87,6 @@ function parseJobFromCsv(row, index, seasonId) {
 function getLocalDateKey(value = new Date()) {
   const date = new Date(value)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-function loadData(userEmail) {
-  try {
-    const key = getUserStorageKey(userEmail)
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
 }
 
 function loadUserSession() {
@@ -201,17 +179,16 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
   const [recoveryEmail, setRecoveryEmail] = useState('')
   const [recoveryStatus, setRecoveryStatus] = useState(null)
-  
+  const [syncing, setSyncing] = useState(false)
+
   const [registerForm, setRegisterForm] = useState({
     name: '', email: '', password: '', phone: '',
     address: '', cep: '', state: '', country: '',
-    resumeFile: null,
-    coverLetterFile: null,
-    resumeFileName: '',
-    coverLetterFileName: '',
+    resumeFile: null, coverLetterFile: null,
+    resumeFileName: '', coverLetterFileName: '',
     employerMessage: 'To the Hiring Manager,\n\nI am writing to express my strong interest in the seasonal position available at your company. I am available and ready to work.\n\nBest regards,',
   })
-  
+
   const [registerErrors, setRegisterErrors] = useState({})
   const [registerStatus, setRegisterStatus] = useState(null)
   const [profileForm, setProfileForm] = useState(null)
@@ -222,29 +199,72 @@ export default function App() {
   const [queueRunning, setQueueRunning] = useState(false)
   const [activeSend, setActiveSend] = useState(null)
   const [countdown, setCountdown] = useState(0)
-  const [fastMode, setFastMode] = useState(false) // Mudado para false (produção)
+  const [fastMode, setFastMode] = useState(false)
   const [activationKey, setActivationKey] = useState('')
   const [activationStatus, setActivationStatus] = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState(false)
 
-  // Carrega dados do localStorage quando usuário loga
-  useEffect(() => {
-    if (user?.email) {
-      const saved = loadData(user.email)
-      setSentLogs(saved.sentLogs || [])
-      setQueue(saved.queue || [])
-      setSelectedSeason(saved.selectedSeason || 'winter-2025')
-    }
-  }, [user])
+  // ===================== SYNC COM SUPABASE =====================
 
-  // Salva no localStorage sempre que mudar
-  useEffect(() => {
-    if (user?.email) {
-      const key = getUserStorageKey(user.email)
-      localStorage.setItem(key, JSON.stringify({ selectedSeason, sentLogs, queue }))
-    }
-  }, [selectedSeason, sentLogs, queue, user])
+  // Carrega dados do Supabase quando usuário loga
+  const loadFromSupabase = useCallback(async (userId) => {
+    if (!userId) return
+    setSyncing(true)
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('sent_logs, queue_data, selected_season')
+        .eq('id', userId)
+        .single()
 
+      if (error) throw error
+      if (data) {
+        setSentLogs(data.sent_logs || [])
+        setQueue(data.queue_data || [])
+        setSelectedSeason(data.selected_season || 'winter-2025')
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar dados do Supabase:', err.message)
+    } finally {
+      setSyncing(false)
+    }
+  }, [])
+
+  // Salva dados no Supabase
+  const saveToSupabase = useCallback(async (userId, newSentLogs, newQueue, newSeason) => {
+    if (!userId) return
+    try {
+      await supabase
+        .from('users')
+        .update({
+          sent_logs: newSentLogs,
+          queue_data: newQueue,
+          selected_season: newSeason,
+        })
+        .eq('id', userId)
+    } catch (err) {
+      console.warn('Erro ao salvar no Supabase:', err.message)
+    }
+  }, [])
+
+  // Carrega dados quando usuário loga
+  useEffect(() => {
+    if (user?.id) {
+      loadFromSupabase(user.id)
+    }
+  }, [user?.id, loadFromSupabase])
+
+  // Salva no Supabase sempre que mudar sentLogs, queue ou season
+  // Usa debounce de 2 segundos para não sobrecarregar
+  useEffect(() => {
+    if (!user?.id) return
+    const timer = setTimeout(() => {
+      saveToSupabase(user.id, sentLogs, queue, selectedSeason)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [sentLogs, queue, selectedSeason, user?.id, saveToSupabase])
+
+  // Salva sessão no localStorage (só dados básicos do usuário, não os logs)
   useEffect(() => {
     if (user) {
       localStorage.setItem(USER_SESSION_KEY, JSON.stringify(user))
@@ -275,7 +295,7 @@ export default function App() {
   const jobs = useMemo(() => allJobs.filter(j => j.seasonId === selectedSeason), [allJobs, selectedSeason])
   const totalSeasonJobs = jobs.length
   const currentSeason = seasons.find(s => s.id === selectedSeason)
-  const isPremium = user?.premium === true && (!user?.premiumExpiresAt || new Date(user.premiumExpiresAt) > new Date())
+  const isPremium = user?.premium === true && (!user?.premiumExpiresAt && !user?.premium_expires_at || new Date(user?.premiumExpiresAt || user?.premium_expires_at) > new Date())
   const totalSentEver = sentLogs.length
   const todayKey = getLocalDateKey()
   const todaySent = sentLogs.filter(l => getLocalDateKey(l.sentAt) === todayKey).length
@@ -327,11 +347,9 @@ export default function App() {
     const remaining = Math.max(0, activeSend.dueAt - Date.now())
     const timer = setTimeout(async () => {
       const job = allJobs.find(j => j.id === item.jobId)
-      
       const attachments = []
       if (user?.resume1_path) attachments.push({ url: user.resume1_path, filename: 'curriculo.pdf' })
       if (user?.cover_letter_path) attachments.push({ url: user.cover_letter_path, filename: 'carta_apresentacao.pdf' })
-      
       try {
         await fetch(`${API_URL}/api/send-candidature`, {
           method: 'POST',
@@ -346,20 +364,28 @@ export default function App() {
             jobLocation: job?.fullLocation,
             caseNumber: job?.caseNumber,
             messageBody: user?.employer_message || user?.employerMessage,
-            attachments: attachments,
+            attachments,
           }),
         })
       } catch (err) { console.warn('Backend offline:', err.message) }
-      setSentLogs(prev => [...prev, {
+
+      const newLog = {
         id: createSentId(), jobId: item.jobId, jobTitle: item.jobTitle,
         employer: item.employer, contact: item.contact,
         seasonId: item.seasonId, sentAt: new Date().toISOString(),
-      }])
+      }
+
+      setSentLogs(prev => {
+        const updated = [...prev, newLog]
+        // Salva imediatamente após envio confirmado
+        saveToSupabase(user.id, updated, queue.filter(i => i.id !== item.id), selectedSeason)
+        return updated
+      })
       setQueue(prev => prev.filter(i => i.id !== item.id))
       setActiveSend(null)
     }, remaining)
     return () => clearTimeout(timer)
-  }, [activeSend, queue, allJobs, user])
+  }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason])
 
   useEffect(() => {
     if (!activeSend) { setCountdown(0); return }
@@ -374,9 +400,7 @@ export default function App() {
   async function uploadFileToStorage(file, folder = 'documents') {
     if (!file) return null
     try {
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error('Arquivo muito grande. Máximo 5MB permitidos.')
-      }
+      if (file.size > 5 * 1024 * 1024) throw new Error('Arquivo muito grande. Máximo 5MB permitidos.')
       const fileExt = file.name.split('.').pop()
       const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`
       const { data, error } = await supabase.storage.from('documentos').upload(fileName, file, { cacheControl: '3600', upsert: false })
@@ -391,14 +415,8 @@ export default function App() {
 
   async function handleRegister(e) {
     e.preventDefault()
-    if (!validateRegister()) {
-      setRegisterStatus({ type: 'error', text: 'Preencha os campos em vermelho.' })
-      return
-    }
-    if (!registerForm.resumeFile) {
-      setRegisterStatus({ type: 'error', text: '⚠️ O Currículo Principal é obrigatório!' })
-      return
-    }
+    if (!validateRegister()) { setRegisterStatus({ type: 'error', text: 'Preencha os campos em vermelho.' }); return }
+    if (!registerForm.resumeFile) { setRegisterStatus({ type: 'error', text: '⚠️ O Currículo Principal é obrigatório!' }); return }
     setUploadingFiles(true)
     setRegisterStatus({ type: 'info', text: '⏳ Enviando seus documentos...' })
     try {
@@ -422,11 +440,16 @@ export default function App() {
         resume2_path: null,
         resume3_path: null,
         cover_letter_path: coverLetterUrl,
+        sent_logs: [],
+        queue_data: [],
+        selected_season: 'winter-2025',
       }
       const { data, error } = await supabase.from('users').insert([newUser]).select().single()
       if (error) throw error
       setUser(data)
       setLogged(true)
+      setSentLogs([])
+      setQueue([])
       localStorage.setItem(USER_SESSION_KEY, JSON.stringify(data))
       setRegisterStatus({ type: 'success', text: '✅ Cadastro realizado com sucesso! Redirecionando...' })
       setTimeout(() => setPage('dashboard'), 1500)
@@ -447,21 +470,12 @@ export default function App() {
     setLoginError('')
     const email = loginForm.email.trim().toLowerCase()
     const password = loginForm.password.trim()
-    if (!email || !password) {
-      setLoginError('Digite seu e-mail e senha.')
-      return
-    }
+    if (!email || !password) { setLoginError('Digite seu e-mail e senha.'); return }
     try {
       const { data: userData, error } = await supabase.from('users').select('*').eq('email', email).maybeSingle()
       if (error) throw error
-      if (!userData) {
-        setLoginError('E-mail não encontrado.')
-        return
-      }
-      if (String(userData.password || '').trim() !== password) {
-        setLoginError('Senha incorreta.')
-        return
-      }
+      if (!userData) { setLoginError('E-mail não encontrado.'); return }
+      if (String(userData.password || '').trim() !== password) { setLoginError('Senha incorreta.'); return }
       setUser(userData)
       setLogged(true)
       localStorage.setItem(USER_SESSION_KEY, JSON.stringify(userData))
@@ -475,17 +489,11 @@ export default function App() {
     e.preventDefault()
     setRecoveryStatus(null)
     const email = recoveryEmail.trim().toLowerCase()
-    if (!email) {
-      setRecoveryStatus({ type: 'error', text: 'Digite seu e-mail.' })
-      return
-    }
+    if (!email) { setRecoveryStatus({ type: 'error', text: 'Digite seu e-mail.' }); return }
     try {
       const { data: userData, error } = await supabase.from('users').select('email,password').eq('email', email).maybeSingle()
       if (error) throw error
-      if (!userData) {
-        setRecoveryStatus({ type: 'error', text: 'E-mail não encontrado.' })
-        return
-      }
+      if (!userData) { setRecoveryStatus({ type: 'error', text: 'E-mail não encontrado.' }); return }
       setRecoveryStatus({ type: 'success', text: `Sua senha: ${userData.password}` })
     } catch (err) {
       setRecoveryStatus({ type: 'error', text: 'Erro ao recuperar senha.' })
@@ -494,28 +502,15 @@ export default function App() {
 
   function handleRegisterFile(field, e) {
     const file = e.target.files?.[0]
-    if (!file) {
-      setRegisterForm(p => ({ ...p, [`${field}File`]: null, [`${field}FileName`]: '' }))
-      return
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setRegisterStatus({ type: 'error', text: 'Arquivo muito grande. Máximo 5MB.' })
-      e.target.value = ''
-      return
-    }
+    if (!file) { setRegisterForm(p => ({ ...p, [`${field}File`]: null, [`${field}FileName`]: '' })); return }
+    if (file.size > 5 * 1024 * 1024) { setRegisterStatus({ type: 'error', text: 'Arquivo muito grande. Máximo 5MB.' }); e.target.value = ''; return }
     setRegisterForm(p => ({ ...p, [`${field}File`]: file, [`${field}FileName`]: file.name }))
   }
 
   function handleProfileFile(field, e) {
     const file = e.target.files?.[0]
-    if (file && file.size > 5 * 1024 * 1024) {
-      alert('Arquivo muito grande. Máximo 5MB.')
-      e.target.value = ''
-      return
-    }
-    if (file) {
-      setProfileForm(p => ({ ...p, [`${field}File`]: file, [`${field}FileName`]: file.name }))
-    }
+    if (file && file.size > 5 * 1024 * 1024) { alert('Arquivo muito grande. Máximo 5MB.'); e.target.value = ''; return }
+    if (file) { setProfileForm(p => ({ ...p, [`${field}File`]: file, [`${field}FileName`]: file.name })) }
   }
 
   function validateRegister() {
@@ -530,11 +525,10 @@ export default function App() {
 
   function openProfile() {
     if (!user) return
-    setProfileForm({ 
-      ...user, 
+    setProfileForm({
+      ...user,
       employerMessage: user.employer_message || '',
-      resumeFile: null,
-      coverLetterFile: null,
+      resumeFile: null, coverLetterFile: null,
       resumeFileName: user.resume1_path ? 'Arquivo carregado' : '',
       coverLetterFileName: user.cover_letter_path ? 'Arquivo carregado' : '',
     })
@@ -552,16 +546,10 @@ export default function App() {
 
   async function saveProfile(e) {
     e.preventDefault()
-    if (!user?.resume1_path && !profileForm.resumeFile) {
-      alert('⚠️ É necessário ter pelo menos um currículo principal.')
-      return
-    }
+    if (!user?.resume1_path && !profileForm.resumeFile) { alert('⚠️ É necessário ter pelo menos um currículo principal.'); return }
     setUploadingFiles(true)
     try {
-      let updates = {
-        phone: profileForm.phone,
-        employer_message: profileForm.employerMessage,
-      }
+      let updates = { phone: profileForm.phone, employer_message: profileForm.employerMessage }
       if (profileForm.resumeFile) {
         const url = await uploadFileToStorage(profileForm.resumeFile, 'resumes')
         if (url) updates.resume1_path = url
@@ -588,15 +576,15 @@ export default function App() {
     setLogged(false)
     setPage('home')
     setUser(null)
+    setSentLogs([])
+    setQueue([])
     localStorage.removeItem(USER_SESSION_KEY)
   }
 
   async function activatePremiumKey() {
     setActivationStatus(null)
     const cleanedKey = activationKey.trim().toUpperCase()
-    if (!cleanedKey || cleanedKey.length < 10) {
-      setActivationStatus({ type: 'error', text: 'Digite sua chave Premium completa.' }); return
-    }
+    if (!cleanedKey || cleanedKey.length < 10) { setActivationStatus({ type: 'error', text: 'Digite sua chave Premium completa.' }); return }
     try {
       const response = await fetch(`${API_URL}/api/activate-key`, {
         method: 'POST',
@@ -645,12 +633,20 @@ export default function App() {
       employer: job.employer, contact: job.contact,
       seasonId: selectedSeason, createdAt: new Date().toISOString(), status: 'queued',
     }))
-    setQueue(p => [...p, ...newItems]); setSelectedIds([]); setQueueRunning(true)
+    setQueue(p => [...p, ...newItems])
+    setSelectedIds([])
+    setQueueRunning(true)
     setJobMessage({ type: 'success', text: `${newItems.length} candidatura(s) adicionada(s) à fila.` })
   }
 
   return (
     <div className="app">
+      {syncing && (
+        <div style={{ position: 'fixed', bottom: 16, right: 16, background: '#1a3a8f', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, zIndex: 9999 }}>
+          🔄 Sincronizando...
+        </div>
+      )}
+
       {page === 'home' && <Home onRegister={() => setPage('register')} onLogin={() => setPage('login')} />}
 
       {page === 'login' && (
@@ -688,41 +684,10 @@ export default function App() {
             <h2>Cadastro completo</h2>
             {registerStatus && <div className={`alert ${registerStatus.type}`}>{registerStatus.text}</div>}
             {uploadingFiles && <div className="alert info">⏳ Enviando arquivos...</div>}
-            <div className="form-section">
-              <h3>Dados pessoais</h3>
-              <div className="grid two">
-                <Field label="Nome completo" error={registerErrors.name} value={registerForm.name} onChange={v => setRegisterForm(p => ({ ...p, name: v }))} />
-                <Field label="E-mail" type="email" error={registerErrors.email} value={registerForm.email} onChange={v => setRegisterForm(p => ({ ...p, email: v }))} />
-                <Field label="Senha" type="password" error={registerErrors.password} value={registerForm.password} onChange={v => setRegisterForm(p => ({ ...p, password: v }))} />
-                <Field label="Telefone" error={registerErrors.phone} value={registerForm.phone} onChange={v => setRegisterForm(p => ({ ...p, phone: v }))} />
-              </div>
-            </div>
-            <div className="form-section">
-              <h3>Endereço</h3>
-              <div className="grid two">
-                <Field label="Endereço" value={registerForm.address} onChange={v => setRegisterForm(p => ({ ...p, address: v }))} />
-                <Field label="CEP" value={registerForm.cep} onChange={v => setRegisterForm(p => ({ ...p, cep: v }))} />
-                <Field label="Estado" value={registerForm.state} onChange={v => setRegisterForm(p => ({ ...p, state: v }))} />
-                <Field label="País" value={registerForm.country} onChange={v => setRegisterForm(p => ({ ...p, country: v }))} />
-              </div>
-            </div>
-            <div className="form-section">
-              <h3>Documentos</h3>
-              <div className="grid two">
-                <label>Currículo Principal *
-                  <input type="file" accept=".pdf,.doc,.docx" onChange={e => handleRegisterFile('resume', e)} disabled={uploadingFiles} required />
-                  {registerForm.resumeFileName && <small>✅ {registerForm.resumeFileName}</small>}
-                </label>
-                <label>Carta de Apresentação (Opcional)
-                  <input type="file" accept=".pdf,.doc,.docx" onChange={e => handleRegisterFile('coverLetter', e)} disabled={uploadingFiles} />
-                  {registerForm.coverLetterFileName && <small>✅ {registerForm.coverLetterFileName}</small>}
-                </label>
-              </div>
-            </div>
-            <div className="form-section">
-              <h3>Mensagem padrão para empregador</h3>
-              <label><textarea rows="5" value={registerForm.employerMessage} onChange={e => setRegisterForm(p => ({ ...p, employerMessage: e.target.value }))} /></label>
-            </div>
+            <div className="form-section"><h3>Dados pessoais</h3><div className="grid two"><Field label="Nome completo" error={registerErrors.name} value={registerForm.name} onChange={v => setRegisterForm(p => ({ ...p, name: v }))} /><Field label="E-mail" type="email" error={registerErrors.email} value={registerForm.email} onChange={v => setRegisterForm(p => ({ ...p, email: v }))} /><Field label="Senha" type="password" error={registerErrors.password} value={registerForm.password} onChange={v => setRegisterForm(p => ({ ...p, password: v }))} /><Field label="Telefone" error={registerErrors.phone} value={registerForm.phone} onChange={v => setRegisterForm(p => ({ ...p, phone: v }))} /></div></div>
+            <div className="form-section"><h3>Endereço</h3><div className="grid two"><Field label="Endereço" value={registerForm.address} onChange={v => setRegisterForm(p => ({ ...p, address: v }))} /><Field label="CEP" value={registerForm.cep} onChange={v => setRegisterForm(p => ({ ...p, cep: v }))} /><Field label="Estado" value={registerForm.state} onChange={v => setRegisterForm(p => ({ ...p, state: v }))} /><Field label="País" value={registerForm.country} onChange={v => setRegisterForm(p => ({ ...p, country: v }))} /></div></div>
+            <div className="form-section"><h3>Documentos</h3><div className="grid two"><label>Currículo Principal *<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleRegisterFile('resume', e)} disabled={uploadingFiles} required />{registerForm.resumeFileName && <small>✅ {registerForm.resumeFileName}</small>}</label><label>Carta de Apresentação (Opcional)<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleRegisterFile('coverLetter', e)} disabled={uploadingFiles} />{registerForm.coverLetterFileName && <small>✅ {registerForm.coverLetterFileName}</small>}</label></div></div>
+            <div className="form-section"><h3>Mensagem padrão para empregador</h3><label><textarea rows="5" value={registerForm.employerMessage} onChange={e => setRegisterForm(p => ({ ...p, employerMessage: e.target.value }))} /></label></div>
             <button className="primary-btn" type="submit" disabled={uploadingFiles}>{uploadingFiles ? '⏳ Enviando...' : 'Concluir cadastro'}</button>
             <button className="text-btn" type="button" onClick={() => setPage('home')} disabled={uploadingFiles}>Voltar</button>
           </form>
@@ -768,41 +733,10 @@ export default function App() {
             <h2>Editar perfil</h2>
             {uploadingFiles && <div className="alert info">⏳ Enviando documentos...</div>}
             {isPremium && <div className="alert success">✅ <strong>Conta Premium Ativa.</strong> Dados bloqueados.</div>}
-            <div className="profile-edit-head">
-              <Avatar user={profileForm} size="big" />
-              <label className="upload-avatar">Trocar foto<input type="file" accept="image/*" onChange={handleAvatarUpload} /></label>
-            </div>
-            <div className="form-section">
-              <h3>Dados pessoais (Bloqueados)</h3>
-              <div className="grid two">
-                <Field label="Nome completo" value={profileForm.name || ''} disabled={true} onChange={() => {}} />
-                <Field label="E-mail" value={profileForm.email || ''} disabled={true} onChange={() => {}} />
-                <Field label="Telefone" value={profileForm.phone || ''} onChange={v => setProfileForm(p => ({ ...p, phone: v }))} />
-                <Field label="Endereço" value={profileForm.address || ''} disabled={true} onChange={() => {}} />
-                <Field label="CEP" value={profileForm.cep || ''} disabled={true} onChange={() => {}} />
-                <Field label="Estado" value={profileForm.state || ''} disabled={true} onChange={() => {}} />
-                <Field label="País" value={profileForm.country || ''} disabled={true} onChange={() => {}} />
-              </div>
-            </div>
-            <div className="form-section">
-              <h3>Documentos</h3>
-              <div className="grid two">
-                <label>Currículo Principal
-                  <input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('resume', e)} disabled={uploadingFiles} />
-                  {profileForm.resumeFileName && <small>✅ {profileForm.resumeFileName}</small>}
-                  {user?.resume1_path && <small style={{color: '#666'}}>🔗 <a href={user.resume1_path} target="_blank" rel="noreferrer">Ver atual</a></small>}
-                </label>
-                <label>Carta de Apresentação
-                  <input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('coverLetter', e)} disabled={uploadingFiles} />
-                  {profileForm.coverLetterFileName && <small>✅ {profileForm.coverLetterFileName}</small>}
-                  {user?.cover_letter_path && <small style={{color: '#666'}}>🔗 <a href={user.cover_letter_path} target="_blank" rel="noreferrer">Ver atual</a></small>}
-                </label>
-              </div>
-            </div>
-            <div className="form-section">
-              <h3>Mensagem padrão para empregador</h3>
-              <label><textarea rows="6" value={profileForm.employerMessage || ''} onChange={e => setProfileForm(p => ({ ...p, employerMessage: e.target.value }))} /></label>
-            </div>
+            <div className="profile-edit-head"><Avatar user={profileForm} size="big" /><label className="upload-avatar">Trocar foto<input type="file" accept="image/*" onChange={handleAvatarUpload} /></label></div>
+            <div className="form-section"><h3>Dados pessoais (Bloqueados)</h3><div className="grid two"><Field label="Nome completo" value={profileForm.name || ''} disabled={true} onChange={() => {}} /><Field label="E-mail" value={profileForm.email || ''} disabled={true} onChange={() => {}} /><Field label="Telefone" value={profileForm.phone || ''} onChange={v => setProfileForm(p => ({ ...p, phone: v }))} /><Field label="Endereço" value={profileForm.address || ''} disabled={true} onChange={() => {}} /><Field label="CEP" value={profileForm.cep || ''} disabled={true} onChange={() => {}} /><Field label="Estado" value={profileForm.state || ''} disabled={true} onChange={() => {}} /><Field label="País" value={profileForm.country || ''} disabled={true} onChange={() => {}} /></div></div>
+            <div className="form-section"><h3>Documentos</h3><div className="grid two"><label>Currículo Principal<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('resume', e)} disabled={uploadingFiles} />{profileForm.resumeFileName && <small>✅ {profileForm.resumeFileName}</small>}{user?.resume1_path && <small style={{color: '#666'}}>🔗 <a href={user.resume1_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label><label>Carta de Apresentação<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('coverLetter', e)} disabled={uploadingFiles} />{profileForm.coverLetterFileName && <small>✅ {profileForm.coverLetterFileName}</small>}{user?.cover_letter_path && <small style={{color: '#666'}}>🔗 <a href={user.cover_letter_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label></div></div>
+            <div className="form-section"><h3>Mensagem padrão para empregador</h3><label><textarea rows="6" value={profileForm.employerMessage || ''} onChange={e => setProfileForm(p => ({ ...p, employerMessage: e.target.value }))} /></label></div>
             {!isPremium && (
               <div className="form-section premium-activation-box">
                 <h3>🔑 Ativar Chave Premium</h3>
@@ -823,54 +757,22 @@ export default function App() {
   )
 }
 
+// ===================== COMPONENTES =====================
 function Home({ onRegister, onLogin }) {
   return (
     <main className="home home-premium">
       <div className="home-overlay" />
       <section className="home-stage">
-        <div className="home-brand-side">
-          <div className="home-brand-big">
-            <div className="home-brand-logo"><RotatingLogo /></div>
-            <div className="home-brand-text">
-              <h1>FUTURE EUA H2B</h1>
-              <p>Rumo ao sonho americano</p>
-            </div>
-          </div>
-        </div>
-        <div className="home-hero-card">
-          <span className="pill">Brasil → Estados Unidos</span>
-          <h2>Organize suas candidaturas H2B em um painel moderno</h2>
-          <p>Sistema para cadastro, dashboard de temporada, controle de limite diário e organização de vagas sazonais.</p>
-          <div className="home-actions premium-home-actions">
-            <button className="primary-btn" onClick={onRegister}>Cadastrar-se</button>
-            <button className="ghost-light-btn" onClick={onLogin}>Fazer login</button>
-          </div>
-        </div>
+        <div className="home-brand-side"><div className="home-brand-big"><div className="home-brand-logo"><RotatingLogo /></div><div className="home-brand-text"><h1>FUTURE EUA H2B</h1><p>Rumo ao sonho americano</p></div></div></div>
+        <div className="home-hero-card"><span className="pill">Brasil → Estados Unidos</span><h2>Organize suas candidaturas H2B em um painel moderno</h2><p>Sistema para cadastro, dashboard de temporada, controle de limite diário e organização de vagas sazonais.</p><div className="home-actions premium-home-actions"><button className="primary-btn" onClick={onRegister}>Cadastrar-se</button><button className="ghost-light-btn" onClick={onLogin}>Fazer login</button></div></div>
       </section>
     </main>
   )
 }
 
-function AuthShell({ children }) {
-  return <main className="auth-shell"><div className="auth-bg" />{children}</main>
-}
-
-function BrandBlock() {
-  return (
-    <div className="brand-block">
-      <RotatingLogo />
-      <div><h1>FUTURE EUA H2B</h1><p>Rumo ao sonho americano</p></div>
-    </div>
-  )
-}
-
-function RotatingLogo() {
-  return (
-    <div className="rotating-logo logo-image">
-      <img src="/logo-br-us.png" alt="Future EUA H2B" />
-    </div>
-  )
-}
+function AuthShell({ children }) { return <main className="auth-shell"><div className="auth-bg" />{children}</main> }
+function BrandBlock() { return <div className="brand-block"><RotatingLogo /><div><h1>FUTURE EUA H2B</h1><p>Rumo ao sonho americano</p></div></div> }
+function RotatingLogo() { return <div className="rotating-logo logo-image"><img src="/logo-br-us.png" alt="Future EUA H2B" /></div> }
 
 function Field({ label, value, onChange, type = 'text', error, disabled }) {
   return (
@@ -887,14 +789,8 @@ function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sen
     <main className="dashboard-page">
       <TopBar user={user} onDashboard={() => {}} onJobs={onJobs} onProfile={onProfile} onLogout={onLogout} finalBlocked={finalBlocked} />
       <section className="container">
-        <div className="dashboard-hero">
-          <div><span className="pill">Painel principal</span><h2>Dashboard da temporada</h2><p>Acompanhe progresso geral e status do sistema.</p></div>
-          <div className="season-box"><label>Temporada</label><select value={selectedSeason} onChange={e => setSelectedSeason(e.target.value)}>{seasons.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
-        </div>
-        <div className="key-card">
-          <div><strong>{isPremium ? '✅ Conta Premium Ativa' : '🔑 Acesso Demonstração'}</strong><p>Chave: <span>{user?.access_key || FREE_ACCESS_KEY}</span></p>{!isPremium && <p style={{ color: '#fbbf24', marginTop: 6 }}>Envios de teste: <strong>{totalSentEver}</strong> / {DEMO_LIMIT}</p>}</div>
-          <div className="price-tag">{isPremium ? '🚀 Premium Ativo' : 'R$200/temporada'}</div>
-        </div>
+        <div className="dashboard-hero"><div><span className="pill">Painel principal</span><h2>Dashboard da temporada</h2><p>Acompanhe progresso geral e status do sistema.</p></div><div className="season-box"><label>Temporada</label><select value={selectedSeason} onChange={e => setSelectedSeason(e.target.value)}>{seasons.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div></div>
+        <div className="key-card"><div><strong>{isPremium ? '✅ Conta Premium Ativa' : '🔑 Acesso Demonstração'}</strong><p>Chave: <span>{user?.access_key || FREE_ACCESS_KEY}</span></p>{!isPremium && <p style={{ color: '#fbbf24', marginTop: 6 }}>Envios de teste: <strong>{totalSentEver}</strong> / {DEMO_LIMIT}</p>}</div><div className="price-tag">{isPremium ? '🚀 Premium Ativo' : 'R$200/temporada'}</div></div>
         {loadingJobs && <div className="alert warning">Carregando vagas...</div>}
         {finalBlocked && <div className="alert error">Temporada finalizada.</div>}
         {!isPremium && totalSentEver >= DEMO_LIMIT && (<div className="alert error demo-lock-box"><p>🚀 <strong>Período de teste finalizado</strong></p><p>Você utilizou {totalSentEver}/{DEMO_LIMIT} envios gratuitos.</p><a href={CONTACT_LINK} target="_blank" rel="noreferrer" className="buy-key-btn">Comprar Chave Premium</a></div>)}
@@ -948,13 +844,8 @@ function Avatar({ user, size = '' }) {
   return <div className={`avatar initials ${size}`}>{getInitials(user?.name)}</div>
 }
 
-function StatCard({ title, value }) {
-  return <div className="stat-card"><span>{title}</span><strong>{value}</strong></div>
-}
-
-function InfoLine({ label, value }) {
-  return <div className="info-line"><span>{label}</span><strong>{value}</strong></div>
-}
+function StatCard({ title, value }) { return <div className="stat-card"><span>{title}</span><strong>{value}</strong></div> }
+function InfoLine({ label, value }) { return <div className="info-line"><span>{label}</span><strong>{value}</strong></div> }
 
 function GlobalFooter() {
   return (
