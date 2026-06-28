@@ -162,7 +162,6 @@ function buildPortugueseJobDescription(job) {
   return `A vaga de ${translateJobTitleToPt(job.title)} está localizada em ${job.fullLocation}. Profissional responsável por ${getPortugueseResponsibilities(job)} O salário informado é: ${job.wageDetail}. Período: ${job.startDate} a ${job.endDate}. Visto: ${job.visaType}.`
 }
 
-// 🔑 NOVA FUNÇÃO: Extrair LicenseKey do usuário
 function getLicenseKey(user = {}) {
   return (
     user?.access_key ||
@@ -219,7 +218,6 @@ export default function App() {
   const [activationStatus, setActivationStatus] = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState(false)
 
-  // ===================== SYNC COM SUPABASE =====================
   const loadFromSupabase = useCallback(async (userId) => {
     if (!userId) return
     console.log('🔄 Carregando dados do usuário', userId)
@@ -342,27 +340,18 @@ export default function App() {
     setActiveSend({ queueId: next.id, dueAt })
   }, [queueRunning, activeSend, queue, fastMode, finalBlocked, isDemoBlocked])
 
-  //  EFEITO DE ENVIO CORRIGIDO
   useEffect(() => {
     if (!activeSend) return
-
     const item = queue.find(i => i.id === activeSend.queueId)
-    if (!item) {
-      setActiveSend(null)
-      return
-    }
-
+    if (!item) { setActiveSend(null); return }
     const remaining = Math.max(0, activeSend.dueAt - Date.now())
-
     const timer = setTimeout(() => {
       ;(async () => {
         const job = allJobs.find(j => j.id === item.jobId)
         const attachments = []
         if (user?.resume1_path) attachments.push({ url: user.resume1_path, filename: 'curriculo.pdf' })
         if (user?.cover_letter_path) attachments.push({ url: user.cover_letter_path, filename: 'carta_apresentacao.pdf' })
-
         const licenseKey = getLicenseKey(user)
-
         try {
           const response = await fetch(`${API_URL}/api/send-candidature`, {
             method: 'POST',
@@ -381,26 +370,20 @@ export default function App() {
               licenseKey,
             }),
           })
-
           const data = await response.json().catch(() => ({}))
-
           if (!response.ok || !data.ok) {
             throw new Error(data.error || `Erro HTTP ${response.status}`)
           }
-
           const newLog = {
             id: createSentId(), jobId: item.jobId, jobTitle: item.jobTitle,
             employer: item.employer, contact: item.contact,
             seasonId: item.seasonId, sentAt: new Date().toISOString(),
           }
-
           const newSentLogs = [...sentLogs, newLog]
           const newQueue = queue.filter(i => i.id !== item.id)
-
           setSentLogs(newSentLogs)
           setQueue(newQueue)
           setJobMessage({ type: 'success', text: `✅ "${item.jobTitle}" enviada com sucesso.` })
-
           if (user?.id && dataLoadedRef.current) {
             saveToSupabase(user.id, newSentLogs, newQueue, selectedSeason)
           }
@@ -413,7 +396,6 @@ export default function App() {
         }
       })()
     }, remaining)
-
     return () => clearTimeout(timer)
   }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason, sentLogs])
 
@@ -425,7 +407,6 @@ export default function App() {
     return () => clearInterval(interval)
   }, [activeSend])
 
-  // ===================== LÓGICA DE NEGÓCIO =====================
   function requireLogin(t) { if (!logged || !user) { setPage('login'); return } setPage(t) }
 
   async function uploadFileToStorage(file, folder = 'documents') {
@@ -669,8 +650,7 @@ export default function App() {
     setQueueRunning(true)
     setJobMessage({ type: 'success', text: `${newItems.length} candidatura(s) adicionada(s) à fila.` })
   }
-
-  // ===================== RENDERIZAÇÃO =====================
+    // ===================== RENDERIZAÇÃO =====================
   return (
     <div className="app">
       {syncing && (
@@ -789,7 +769,7 @@ export default function App() {
   )
 }
 
-// ===================== COMPONENTES =====================
+// ===================== COMPONENTES VISUAIS =====================
 function Home({ onRegister, onLogin }) {
   return (
     <main className="home home-premium">
@@ -825,7 +805,7 @@ function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sen
         <div className="key-card"><div><strong>{isPremium ? '✅ Conta Premium Ativa' : '🔑 Acesso Demonstração'}</strong><p>Chave: <span>{user?.access_key || FREE_ACCESS_KEY}</span></p>{!isPremium && <p style={{ color: '#fbbf24', marginTop: 6 }}>Envios de teste: <strong>{totalSentEver}</strong> / {DEMO_LIMIT}</p>}</div><div className="price-tag">{isPremium ? '🚀 Premium Ativo' : 'R$200/temporada'}</div></div>
         {loadingJobs && <div className="alert warning">Carregando vagas...</div>}
         {finalBlocked && <div className="alert error">Temporada finalizada.</div>}
-        {!isPremium && totalSentEver >= DEMO_LIMIT && (<div className="alert error demo-lock-box"><p> <strong>Período de teste finalizado</strong></p><p>Você utilizou {totalSentEver}/{DEMO_LIMIT} envios gratuitos.</p><a href={CONTACT_LINK} target="_blank" rel="noreferrer" className="buy-key-btn">Comprar Chave Premium</a></div>)}
+        {!isPremium && totalSentEver >= DEMO_LIMIT && (<div className="alert error demo-lock-box"><p>🚀 <strong>Período de teste finalizado</strong></p><p>Você utilizou {totalSentEver}/{DEMO_LIMIT} envios gratuitos.</p><a href={CONTACT_LINK} target="_blank" rel="noreferrer" className="buy-key-btn">Comprar Chave Premium</a></div>)}
         <div className="stats-grid"><StatCard title="Total da temporada" value={`${totalSeasonJobs} vagas`} /><StatCard title="Enviadas" value={sentCount} /><StatCard title="Restantes" value={remainingCount} /><StatCard title="Status" value={systemStatus} /></div>
         <section className="panel"><div className="panel-head"><div><h3>Progresso geral</h3><p>{currentSeason?.label}</p></div><strong>{progress}%</strong></div><div className="life-bar"><div className={`life-fill ${barColor}`} style={{ width: `${progress}%` }} /></div></section>
         <div className="stats-grid"><StatCard title="Hoje" value={`${todaySent} enviadas`} /><StatCard title="Na fila hoje" value={todayQueued} /><StatCard title="Média diária" value={averageDaily} /><StatCard title="Restante hoje" value={dailyRemaining} /></div>
@@ -882,7 +862,7 @@ function InfoLine({ label, value }) { return <div className="info-line"><span>{l
 function GlobalFooter() {
   return (
     <footer className="global-footer">
-      <p>️ A plataforma não garante vaga, não garante visto, não garante contratação e não possui vínculo direto com empregadores.</p>
+      <p>⚠️ A plataforma não garante vaga, não garante visto, não garante contratação e não possui vínculo direto com empregadores.</p>
       <p>Este sistema apenas organiza e controla candidaturas. Dados devem ser conferidos em fontes oficiais.</p>
       <p>Crédito de dados: <strong>seasonaljobs.dol.gov</strong> — dados públicos de emprego sazonal.</p>
       <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)', margin: '20px auto', maxWidth: '600px' }} />
@@ -891,12 +871,11 @@ function GlobalFooter() {
         <p style={{ fontSize: '13px', opacity: 0.85, marginBottom: '6px' }}>📧 Contato: <a href="mailto:magno.elen2023@gmail.com" style={{ color: '#60a5fa', textDecoration: 'none' }}>magno.elen2023@gmail.com</a></p>
         <p style={{ fontSize: '13px', opacity: 0.85 }}>
           <a href="https://wa.me/5575999866105?text=Olá!%20Tenho%20interesse%20no%20FUTURE%20EUA%20H2B" target="_blank" rel="noreferrer" style={{ color: '#25D366', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#25D366"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4. +55 (75) 99986-6105
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#25D366"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+            +55 (75) 99986-6105
           </a>
         </p>
       </div>
     </footer>
   )
 }
-
-          
