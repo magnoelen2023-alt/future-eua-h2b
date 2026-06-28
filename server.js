@@ -6,78 +6,67 @@ import { createClient } from '@supabase/supabase-js'
 
 const app = express()
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }))
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-admin-secret']
+}))
 app.use(express.json())
 
 const PORT = process.env.PORT || 3001
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'MAGNO-ADMIN-2026'
 const DAILY_LIMIT = 100
 
+// ===================== RESEND & SUPABASE =====================
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev'
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 
-// ===================== FUNÇÕES DE CONTROLE DIÁRIO (CORRIGIDAS) =====================
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+)
+
+// ===================== FUNÇÕES DE CONTROLE DIÁRIO =====================
 async function getDailyCount(licenseKey) {
   if (!licenseKey) return 0
   const today = new Date().toISOString().split('T')[0]
-
-  const { data, error } = await supabase
-    .from('daily_sends')
-    .select('count')
-    .eq('license_key', licenseKey)
-    .eq('send_date', today)
-    .maybeSingle()
-
-  if (error) {
-    console.error('Erro ao buscar daily count:', error)
+  try {
+    const { data } = await supabase
+      .from('daily_sends')
+      .select('count')
+      .eq('license_key', licenseKey)
+      .eq('send_date', today)
+      .maybeSingle()
+    return data?.count || 0
+  } catch (error) {
+    console.error("Aviso: Falha ao ler daily count:", error.message)
     return 0
   }
-
-  return data?.count || 0
 }
 
-async function incrementDailyCount(licenseKey, userEmail) {
+async function incrementDailyCount(licenseKey, userEmail, currentCount) {
   if (!licenseKey) return 0
   const today = new Date().toISOString().split('T')[0]
-
-  // Tenta atualizar primeiro
-  const { data: updated, error: updateError } = await supabase
-    .from('daily_sends')
-    .update({ count: supabase.raw('count + 1') })
-    .eq('license_key', licenseKey)
-    .eq('send_date', today)
-    .select()
-    .maybeSingle()
-
-  if (updateError) {
-    console.error('Erro ao incrementar daily count:', updateError)
-    return 0
+  const newCount = currentCount + 1
+  
+  try {
+    const { error } = await supabase
+      .from('daily_sends')
+      .upsert({
+        license_key: licenseKey,
+        user_email: userEmail,
+        send_date: today,
+        count: newCount
+      }, {
+        onConflict: 'license_key,send_date'
+      })
+      
+    if (error) console.error('Aviso: Erro ao incrementar limite:', error.message)
+    return newCount
+  } catch (error) {
+    console.error("Aviso: Falha catastrofica ao incrementar:", error.message)
+    return newCount
   }
-
-  // Se atualizou, retorna o novo valor
-  if (updated) {
-    return updated.count
-  }
-
-  // Se não existia, cria um novo registro
-  const { data: inserted, error: insertError } = await supabase
-    .from('daily_sends')
-    .insert([{
-      license_key: licenseKey,
-      user_email: userEmail,
-      send_date: today,
-      count: 1
-    }])
-    .select()
-    .single()
-
-  if (insertError) {
-    console.error('Erro ao criar daily count:', insertError)
-    return 0
-  }
-
-  return inserted.count
 }
 
 // ===================== FUNÇÕES AUXILIARES =====================
@@ -138,10 +127,11 @@ async function downloadFileFromUrl(url) {
   }
 }
 
-async function prepareAttachments(attachments = []) {
+async function prepareAttachments(attachments) {
+  if (!attachments || !Array.isArray(attachments)) return []
   const prepared = []
   for (const att of attachments) {
-    if (!att?.url) continue
+    if (!att || !att.url) continue
     try {
       const buffer = await downloadFileFromUrl(att.url)
       if (buffer && buffer.length > 0) {
@@ -153,25 +143,43 @@ async function prepareAttachments(attachments = []) {
         })
       }
     } catch (error) {
-      console.error(`❌ Erro anexo: ${error.message}`)
+      console.error(`❌ Erro ao preparar anexo: ${error.message}`)
     }
   }
   return prepared
 }
 
-// ===================== ROTAS =====================
+// ===================== ROTAS DE API =====================
+
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: 'Backend v2 - Controle diário no Supabase' })
+  res.json({ ok: true, message: 'Backend v3 - Fila protegida' })
 })
 
-// GERAR KEY
+app.get('/api/daily-stats', async (req, res) => {
+  const { licenseKey } = req.query
+  if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey é obrigatório' })
+  
+  const count = await getDailyCount(licenseKey)
+  res.json({ 
+    ok: true, 
+    dailySent: count, 
+    dailyLimit: DAILY_LIMIT,
+    remaining: Math.max(0, DAILY_LIMIT - count)
+  })
+})
+
 app.get('/api/admin/generate-key', async (req, res) => {
   if (!requireAdmin(req, res)) return
   try {
-    const email = (req.query.email || '').toLowerCase()
+    const email = req.query.email ? String(req.query.email).toLowerCase() : ''
     const days = parseInt(req.query.days) || 180
     const key = generatePremiumKey()
-    const { data, error } = await supabase.from('licenses').insert([{ key, status: 'unused', assigned_email: email, days_valid: days }]).select().single()
+    const { data, error } = await supabase
+      .from('licenses')
+      .insert([{
+        key, status: 'unused', assigned_email: email, days_valid: days, max_daily: DAILY_LIMIT, max_season: 3500,
+      }])
+      .select().single()
     if (error) return res.status(500).json({ ok: false, error: error.message })
     return res.json({ ok: true, key, license: data })
   } catch (error) {
@@ -179,20 +187,24 @@ app.get('/api/admin/generate-key', async (req, res) => {
   }
 })
 
-// LISTAR KEYS
 app.get('/api/admin/licenses', async (req, res) => {
   if (!requireAdmin(req, res)) return
-  const { data } = await supabase.from('licenses').select('*').order('created_at', { ascending: false })
-  return res.json({ ok: true, licenses: data })
+  try {
+    const { data, error } = await supabase.from('licenses').select('*').order('created_at', { ascending: false })
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    return res.json({ ok: true, licenses: data })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message })
+  }
 })
 
-// ATIVAR KEY
 app.post('/api/activate-key', async (req, res) => {
   try {
     const { key, user } = req.body
     if (!key || !user?.email) return res.status(400).json({ ok: false, error: 'Dados faltantes.' })
     const cleanedKey = cleanKey(key)
     const userEmail = user.email.trim().toLowerCase()
+    
     const { data: license, error: findError } = await supabase.from('licenses').select('*').eq('key', cleanedKey).single()
     if (findError || !license) return res.status(404).json({ ok: false, error: 'Chave inválida.' })
     
@@ -214,194 +226,119 @@ app.post('/api/activate-key', async (req, res) => {
   }
 })
 
-// BUSCAR ESTATÍSTICAS DIÁRIAS
-app.get('/api/daily-stats', async (req, res) => {
-  const { licenseKey } = req.query
-  if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey é obrigatório' })
-  
-  const count = await getDailyCount(licenseKey)
-  res.json({ 
-    ok: true, 
-    dailySent: count, 
-    dailyLimit: DAILY_LIMIT,
-    remaining: Math.max(0, DAILY_LIMIT - count)
-  })
-})
+// ===================== ROTA PRINCIPAL DE ENVIO =====================
 
-// ENVIAR CANDIDATURA
 app.post('/api/send-candidature', async (req, res) => {
   try {
-    const { candidateName, candidateEmail, candidatePhone, employerName, employerEmail, jobTitle, jobLocation, caseNumber, messageBody, attachments, licenseKey } = req.body
+    const { 
+      candidateName, candidateEmail, candidatePhone, employerName, employerEmail, 
+      jobTitle, jobLocation, caseNumber, messageBody, attachments, licenseKey 
+    } = req.body
 
-    console.log('═══════════════════════════════════════════')
-    console.log('📨 INICIANDO ENVIO DE CANDIDATURA')
-    console.log('═══════════════════════════════════════════')
-    console.log('👤 Candidato:', candidateName)
-    console.log('📧 Candidato email:', candidateEmail)
-    console.log(' Empregador:', employerName)
-    console.log('📧 Empregador email:', employerEmail)
-    console.log('💼 Vaga:', jobTitle)
-    console.log('🔑 LicenseKey:', licenseKey || 'NÃO INFORMADA')
+    console.log(`📨 PROCESSANDO: ${candidateName} -> ${employerName}`)
 
-    if (!candidateEmail || !jobTitle || !licenseKey) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Dados obrigatórios faltando.',
-      })
+    if (!candidateEmail || !jobTitle) {
+      return res.status(400).json({ ok: false, error: 'Dados obrigatórios faltando.' })
     }
 
-    const currentCount = await getDailyCount(licenseKey)
-    if (currentCount >= DAILY_LIMIT) {
-      return res.status(429).json({
-        ok: false,
-        error: `Limite diário de ${DAILY_LIMIT} envios atingido.`,
-      })
+    // Validação de limite diário
+    let currentCount = 0
+    if (licenseKey) {
+      currentCount = await getDailyCount(licenseKey)
+      if (currentCount >= DAILY_LIMIT) {
+        return res.status(429).json({ ok: false, error: `Limite diário de ${DAILY_LIMIT} envios atingido.` })
+      }
     }
 
-    const emailAttachments = await prepareAttachments(attachments || [])
+    const safeAttachments = Array.isArray(attachments) ? attachments : []
+    let emailAttachments = []
+    
+    if (safeAttachments.length > 0) {
+      emailAttachments = await prepareAttachments(safeAttachments)
+    }
 
     const employerHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222;">
-        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
-          <h2>Job Application — ${jobTitle}</h2>
-        </div>
-        <div style="padding: 24px; border: 1px solid #e0e0e0;">
-          <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
-          <p>${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-          <h3>Candidate:</h3>
-          <p><strong>${candidateName}</strong></p>
-          <p><strong>Email:</strong> ${candidateEmail}</p>
-          <p><strong>Phone:</strong> ${candidatePhone || 'N/A'}</p>
-          <p><strong>Position:</strong> ${jobTitle}</p>
-          <p><strong>Location:</strong> ${jobLocation || 'N/A'}</p>
-          <p><strong>Case #:</strong> ${caseNumber || 'N/A'}</p>
-          <p style="font-size: 12px; color: #777; margin-top: 24px;">
-            Sent via FUTURE EUA H2B platform
-          </p>
-        </div>
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
+        <p>${messageBody || 'I am writing to express my interest in the seasonal position available at your company.'}</p>
+        <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
+        <p><strong>Candidate Details:</strong></p>
+        <ul>
+          <li><strong>Name:</strong> ${candidateName}</li>
+          <li><strong>Email:</strong> ${candidateEmail}</li>
+          <li><strong>Phone:</strong> ${candidatePhone || 'Not provided'}</li>
+          <li><strong>Position:</strong> ${jobTitle}</li>
+        </ul>
+        <p style="font-size:11px; color:#999;">Sent via Future EUA H2B Platform</p>
       </div>
     `
 
     const rawEmployerEmail = String(employerEmail || '').trim()
     const testEmployerEmail = String(process.env.TEST_EMPLOYER_EMAIL || '').trim()
-    const employerTargetEmail = testEmployerEmail || rawEmployerEmail
+    const targetEmail = testEmployerEmail || rawEmployerEmail
 
-    console.log('📧 E-mail destino do empregador:', employerTargetEmail || 'NENHUM')
-    console.log('📧 Respostas devem ir para:', candidateEmail)
-    console.log('📧 FROM_EMAIL:', FROM_EMAIL)
-
-    // ENVIAR PARA EMPREGADOR
-    let employerEmailSent = false
-    let employerEmailError = null
-
-    if (employerTargetEmail && employerTargetEmail.includes('@')) {
-      try {
-        console.log(' Enviando e-mail para o empregador...')
-        const result = await resend.emails.send({
-          from: `Future EUA H2B <${FROM_EMAIL}>`,
-          to: [employerTargetEmail],
-          replyTo: candidateEmail,
-          subject: `Application: ${candidateName} — ${jobTitle}`,
-          html: employerHtml,
-          attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
-        })
-
-        employerEmailSent = true
-        console.log('✅ E-mail do empregador enviado com sucesso')
-        console.log('📨 Resend ID:', result?.data?.id || 'sem id')
-      } catch (err) {
-        employerEmailError = err?.message || 'Erro ao enviar e-mail para empregador'
-        console.error('❌ Erro ao enviar e-mail ao empregador:', err)
-      }
-    } else {
-      console.warn('⚠️ E-mail do empregador inválido ou ausente.')
+    // ENVIO EMPREGADOR
+    if (targetEmail && targetEmail.includes('@')) {
+      await resend.emails.send({
+        from: `${candidateName} <${FROM_EMAIL}>`,
+        to: [targetEmail],
+        reply_to: candidateEmail,
+        subject: `Application: ${candidateName} — ${jobTitle}`,
+        html: employerHtml,
+        attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+      })
     }
 
-    // ENVIAR CONFIRMAÇÃO AO CANDIDATO
-    let candidateEmailSent = false
-    let candidateEmailError = null
-
+    // ENVIO CANDIDATO (CONFIRMAÇÃO)
     const candidateHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222;">
-        <div style="background: #16a34a; color: white; padding: 20px; text-align: center;">
-          <h2>✅ Candidatura enviada com sucesso!</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+        <div style="background: #1a3a8f; color: white; padding: 20px; text-align: center;">
+          <h2 style="margin: 0;">Candidatura Enviada!</h2>
         </div>
-        <div style="padding: 24px; border: 1px solid #e0e0e0;">
-          <p>Olá, <strong>${candidateName}</strong>!</p>
-          <p>Sua candidatura para <strong>${jobTitle}</strong> foi enviada.</p>
-
-          <div style="background: #f0fdf4; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #16a34a;">
-            <p style="margin: 0;"><strong>Empregador:</strong> ${employerName}</p>
-            <p style="margin: 6px 0 0;"><strong>E-mail do empregador:</strong> ${employerTargetEmail || rawEmployerEmail || 'Não informado'}</p>
-            <p style="margin: 6px 0 0;"><strong>Enviado em:</strong> ${new Date().toLocaleString('pt-BR')}</p>
-            <p style="margin: 6px 0 0;"><strong>Envios hoje:</strong> ${currentCount + 1}/${DAILY_LIMIT}</p>
+        <div style="padding: 20px;">
+          <p>Olá <strong>${candidateName}</strong>,</p>
+          <p>Confirmamos que sua candidatura para a vaga <strong>${jobTitle}</strong> foi enviada com sucesso para <strong>${employerName}</strong>.</p>
+          <div style="background: #f4f7ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Destinatário:</strong> ${rawEmployerEmail}</p>
           </div>
-
-          <p>
-            Se o empregador tiver resposta automática, ela deve chegar no seu e-mail:
-            <strong>${candidateEmail}</strong>
-          </p>
-
-          <p style="font-size: 12px; color: #777; margin-top: 24px;">
-            Future EUA H2B — confirmação automática do sistema
-          </p>
+          <p>Se o empregador responder, a mensagem chegará <strong>diretamente na sua caixa de entrada</strong> em <em>${candidateEmail}</em>.</p>
+          <p style="color: #666; font-size: 13px; margin-top: 30px;">Atenciosamente,<br>Equipe Future EUA H2B</p>
         </div>
       </div>
     `
 
-    try {
-      console.log('📤 Enviando e-mail de confirmação para o candidato...')
-      const result = await resend.emails.send({
-        from: `Future EUA H2B <${FROM_EMAIL}>`,
-        to: [candidateEmail],
-        subject: `✅ Candidatura enviada — ${jobTitle}`,
-        html: candidateHtml,
-      })
+    await resend.emails.send({
+      from: `Future EUA H2B <${FROM_EMAIL}>`,
+      to: [candidateEmail],
+      subject: `✅ Candidatura Enviada: ${jobTitle} na empresa ${employerName}`,
+      html: candidateHtml,
+    })
 
-      candidateEmailSent = true
-      console.log('✅ E-mail de confirmação enviado com sucesso')
-      console.log('📨 Resend ID:', result?.data?.id || 'sem id')
-    } catch (err) {
-      candidateEmailError = err?.message || 'Erro ao enviar confirmação ao candidato'
-      console.error('❌ Erro ao enviar e-mail de confirmação:', err)
+    console.log(`✅ E-mails disparados com sucesso!`)
+
+    // Incrementa limite diário (PROTEGIDO COM TRY/CATCH)
+    let newCount = currentCount
+    if (licenseKey) {
+      newCount = await incrementDailyCount(licenseKey, candidateEmail, currentCount)
     }
 
-    // SALVAR CONTADOR
-    const newCount = await incrementDailyCount(licenseKey, candidateEmail)
-
-    console.log('═══════════════════════════════════════════')
-    console.log('✅ PROCESSO FINALIZADO')
-    console.log(' Empregador enviado:', employerEmailSent)
-    console.log('📧 Candidato enviado:', candidateEmailSent)
-    console.log('═══════════════════════════════════════════')
-
-    return res.json({
-      ok: true,
-      message: 'Processo concluído.',
+    // Sempre retorna 200 OK se chegou até aqui
+    return res.json({ 
+      ok: true, 
+      message: 'E-mails enviados com sucesso!',
       dailySent: newCount,
-      dailyLimit: DAILY_LIMIT,
-      employerEmailSent,
-      candidateEmailSent,
-      warnings: {
-        employerEmailError,
-        candidateEmailError,
-      },
+      remaining: Math.max(0, DAILY_LIMIT - newCount)
     })
+
   } catch (error) {
-    console.error('❌ ERRO CRÍTICO NA ROTA:', error)
-    return res.status(500).json({
-      ok: false,
-      error: error.message,
-    })
+    console.error('❌ ERRO CRÍTICO NO ENVIO:', error)
+    return res.status(500).json({ ok: false, error: error.message })
   }
 })
 
 app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════')
-  console.log(`✅ Backend rodando na porta ${PORT}`)
-  console.log(` Resend From: ${FROM_EMAIL}`)
-  console.log(`🗄️ Supabase: ${process.env.SUPABASE_URL ? 'Conectado' : 'NÃO CONFIGURADO'}`)
-  console.log(`📊 Controle diário ativo (limite: ${DAILY_LIMIT})`)
+  console.log(`✅ Servidor online na porta ${PORT}`)
+  console.log(`📧 Resend Email: ${FROM_EMAIL}`)
   console.log('═══════════════════════════════════════════')
 })
