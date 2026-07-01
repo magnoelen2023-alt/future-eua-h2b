@@ -206,28 +206,40 @@ app.post('/api/send-candidature', async (req, res) => {
 
     const emailAttachments = await prepareAttachments(attachments)
 
-    // 1. HTML PARA O EMPREGADOR
+    // ===================== 1. HTML PARA O EMPREGADOR =====================
     const employerHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222; border: 1px solid #e0e0e0;">
         <div style="background:#1a3a8f;color:#fff;padding:20px;text-align:center;">
           <h2 style="margin:0;">Job Application — ${jobTitle}</h2>
+          <p style="margin:6px 0 0;opacity:0.9;font-size:13px;">H-2B Visa Seasonal Program</p>
         </div>
         <div style="padding:24px;">
           <p>Dear Hiring Manager at <strong>${employerName}</strong>,</p>
-          <p style="white-space:pre-line;">${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
+          <div style="background:#f8f9fa;padding:16px;border-radius:8px;margin:16px 0;border-left:4px solid #1a3a8f;">
+            <p style="margin:0;white-space:pre-line;">${messageBody || 'I am writing to express my interest in this seasonal position.'}</p>
+          </div>
           <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
-          <p><strong>Candidate:</strong> ${candidateName}</p>
+          <h3 style="color:#1a3a8f;margin-bottom:10px;">📋 Position Details</h3>
+          <p><strong>Position:</strong> ${jobTitle}</p>
+          <p><strong>Location:</strong> ${jobLocation || 'N/A'}</p>
+          <p><strong>Case #:</strong> ${caseNumber || 'N/A'}</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
+          <h3 style="color:#1a3a8f;margin-bottom:10px;">👤 Candidate Information</h3>
+          <p><strong>Name:</strong> ${candidateName}</p>
           <p><strong>Email:</strong> ${candidateEmail}</p>
           <p><strong>Phone:</strong> ${candidatePhone || 'N/A'}</p>
-          <p><strong>Position:</strong> ${jobTitle}</p>
-          <p><strong>Case #:</strong> ${caseNumber || 'N/A'}</p>
+          ${emailAttachments.length > 0 ? `
+          <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
+          <h3 style="color:#1a3a8f;margin-bottom:10px;">📎 Attached Documents</h3>
+          <ul>${emailAttachments.map(a => `<li>${a.filename}</li>`).join('')}</ul>` : ''}
+          <p style="margin-top:24px;">Sincerely,<br><strong>${candidateName}</strong></p>
         </div>
       </div>
     `
 
     const target = process.env.TEST_EMPLOYER_EMAIL || employerEmail
 
-    // ENVIAR AO EMPREGADOR
+    // ENVIAR AO EMPREGADOR (sem CC, sem BCC - apenas "to" e "replyTo")
     let employerSent = false
     if (target?.includes('@')) {
       try {
@@ -236,26 +248,33 @@ app.post('/api/send-candidature', async (req, res) => {
           toName: employerName,
           subject: `Application: ${candidateName} — ${jobTitle}`,
           html: employerHtml,
-          replyTo: candidateEmail,
+          replyTo: candidateEmail, // Respostas do empregador vão direto para o candidato
           attachments: emailAttachments,
         })
         employerSent = true
+        console.log(`✅ Enviado ao empregador: ${target} (replyTo: ${candidateEmail})`)
       } catch (err) { console.error('Erro empregador:', err.message) }
     }
 
-    // 2. HTML PARA O CANDIDATO (CONFIRMAÇÃO)
+    // ===================== 2. HTML PARA O CANDIDATO (ESPELHO FIEL) =====================
     const candidateHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #222; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+      <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #222; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
         <div style="background:#16a34a;color:#fff;padding:20px;text-align:center;">
-          <h2 style="margin:0;">✅ Candidatura Enviada!</h2>
+          <h2 style="margin:0;">✅ Cópia da Candidatura Enviada</h2>
         </div>
         <div style="padding:24px;">
           <p>Olá, <strong>${candidateName}</strong>!</p>
-          <p>Sua candidatura para <strong>${jobTitle}</strong> em <strong>${employerName}</strong> foi enviada.</p>
-          <p><strong>Envios hoje:</strong> ${currentCount + 1} de ${DAILY_LIMIT_PER_USER}</p>
-          <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
-          <p style="font-size:13px;color:#666;">Qualquer resposta do empregador chegará diretamente no seu e-mail.</p>
+          <p>Este é o <strong>espelho exato</strong> do e-mail que enviamos para <strong>${employerName}</strong> (${target}).</p>
+          <div style="background:#f0fdf4;padding:14px;border-radius:8px;margin:16px 0;border-left:4px solid #16a34a;">
+            <p style="margin:0;"><strong>Vaga:</strong> ${jobTitle}</p>
+            <p style="margin:6px 0 0;"><strong>Envios hoje:</strong> ${currentCount + 1} de ${DAILY_LIMIT_PER_USER}</p>
+          </div>
+          <p style="font-size:13px;color:#666;margin-bottom:20px;">
+            Qualquer resposta do empregador (automática ou manual) chegará diretamente na sua caixa de entrada.
+          </p>
+          <hr style="border:none;border-top:2px dashed #ccc;margin:20px 0;">
         </div>
+        ${employerHtml}
       </div>
     `
 
@@ -264,11 +283,12 @@ app.post('/api/send-candidature', async (req, res) => {
       await sendEmailBrevo({
         to: candidateEmail,
         toName: candidateName,
-        subject: `CONFIRMAÇÃO: Candidatura para ${jobTitle}`,
+        subject: `[CÓPIA] Application: ${candidateName} — ${jobTitle}`,
         html: candidateHtml,
         attachments: emailAttachments,
       })
       candidateSent = true
+      console.log(`✅ Cópia enviada ao candidato: ${candidateEmail}`)
     } catch (err) { console.error('Erro candidato:', err.message) }
 
     const newCount = await incrementDailyCount(licenseKey, candidateEmail)
