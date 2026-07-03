@@ -85,11 +85,6 @@ function parseJobFromCsv(row, index, seasonId) {
   }
 }
 
-function getLocalDateKey(value = new Date()) {
-  const date = new Date(value)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 function loadUserSession() {
   try {
     const raw = localStorage.getItem(USER_SESSION_KEY)
@@ -98,79 +93,6 @@ function loadUserSession() {
 }
 
 function createQueueId() { return `QUEUE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
-function createSentId() { return `SENT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
-
-function randomDelay(fastMode) {
-  return fastMode
-    ? Math.floor(Math.random() * (12000 - 5000 + 1)) + 5000
-    : Math.floor(Math.random() * (240000 - 90000 + 1)) + 90000
-}
-
-function formatSeconds(s) {
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return m <= 0 ? `${sec}s` : `${m}min ${String(sec).padStart(2, '0')}s`
-}
-
-function getInitials(name = '') {
-  const p = name.trim().split(' ').filter(Boolean)
-  return p.length === 0 ? 'FE' : p.length === 1 ? p[0].slice(0, 2).toUpperCase() : `${p[0][0]}${p[p.length - 1][0]}`.toUpperCase()
-}
-
-function progressColor(p) { return p < 35 ? 'green' : p < 75 ? 'yellow' : 'red' }
-
-function translateJobTitleToPt(title = '') {
-  const t = title.toLowerCase().trim()
-  if (t.includes('dishwash')) return 'Lavador de pratos'
-  if (t.includes('server')) return 'Garçom / Atendente'
-  if (t.includes('waiter')) return 'Garçom'
-  if (t.includes('waitress')) return 'Garçonete'
-  if (t.includes('cook')) return 'Cozinheiro'
-  if (t.includes('chef')) return 'Chef de cozinha'
-  if (t.includes('housekeep')) return 'Camareira / Arrumação'
-  if (t.includes('room attendant')) return 'Atendente de quartos'
-  if (t.includes('clean')) return 'Auxiliar de limpeza'
-  if (t.includes('janitor')) return 'Zelador'
-  if (t.includes('landscape')) return 'Trabalhador de paisagismo'
-  if (t.includes('groundskeep')) return 'Manutenção de áreas externas'
-  if (t.includes('roof')) return 'Telhadista'
-  if (t.includes('construction')) return 'Trabalhador da construção'
-  if (t.includes('laborer')) return 'Trabalhador geral'
-  if (t.includes('maintenance')) return 'Auxiliar de manutenção'
-  if (t.includes('laundry')) return 'Auxiliar de lavanderia'
-  if (t.includes('cashier')) return 'Caixa'
-  if (t.includes('bartender')) return 'Bartender'
-  if (t.includes('painter')) return 'Pintor'
-  if (t.includes('carpenter')) return 'Carpinteiro'
-  if (t.includes('farm')) return 'Trabalhador rural'
-  return title
-}
-
-function getPortugueseResponsibilities(job) {
-  const title = (job?.title || '').toLowerCase()
-  const category = (job?.category || '').toLowerCase()
-  if (title.includes('dishwash')) return 'realizar a lavagem de pratos, copos, panelas, utensílios e equipamentos de cozinha, mantendo a área limpa, organizada e pronta para operação.'
-  if (title.includes('server') || title.includes('waiter')) return 'atender clientes, anotar pedidos, servir alimentos e bebidas, organizar mesas e apoiar o funcionamento do salão.'
-  if (title.includes('cook') || title.includes('chef')) return 'preparar alimentos, organizar ingredientes, manter os padrões de higiene da cozinha e apoiar a produção.'
-  if (title.includes('housekeep') || category.includes('hotelaria')) return 'executar limpeza, arrumação e organização de quartos e áreas internas, seguindo os padrões de higiene.'
-  if (title.includes('landscape')) return 'executar atividades de paisagismo e manutenção de áreas externas.'
-  return 'executar as atividades principais da função conforme orientação do empregador, respeitando padrões de qualidade e segurança.'
-}
-
-function buildPortugueseJobDescription(job) {
-  if (!job) return 'Selecione uma vaga para ver os detalhes.'
-  return `A vaga de ${translateJobTitleToPt(job.title)} está localizada em ${job.fullLocation}. Profissional responsável por ${getPortugueseResponsibilities(job)} O salário informado é: ${job.wageDetail}. Período: ${job.startDate} a ${job.endDate}. Visto: ${job.visaType}.`
-}
-
-function getLicenseKey(user = {}) {
-  return (
-    user?.access_key ||
-    user?.accessKey ||
-    user?.premium_access_key ||
-    user?.premiumAccessKey ||
-    ''
-  )
-}
 
 // ===================== COMPONENTE PRINCIPAL =====================
 export default function App() {
@@ -182,204 +104,121 @@ export default function App() {
   const [selectedSeason, setSelectedSeason] = useState(seasons[0])
   const [jobs, setJobs] = useState([])
   const [queue, setQueue] = useState([])
-  const [sentLogs, setSentLogs] = useState([])
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [fastMode, setFastMode] = useState(true)
   const [message, setMessage] = useState('')
-  const intervalRef = useRef(null)
+  const [loading, setLoading] = useState(false)
 
-  // ===================== CARREGAR DADOS DO USUÁRIO =====================
+  // Carregar dados do Supabase
   const loadUserData = useCallback(async (userData) => {
     if (!userData?.email) return
-
-    const { data } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', userData.email)
-      .single()
-
+    const { data } = await supabase.from('users').select('*').eq('email', userData.email).single()
     if (data) {
       setUser(data)
       setIsPremium(!!data.premium)
-      setAccessKey(data.access_key || data.accessKey || '')
+      setAccessKey(data.access_key || '')
       setGmailConnected(!!data.gmail_connected)
       setGmailEmail(data.gmail_email || '')
     }
   }, [])
 
-  // ===================== VERIFICAR CALLBACK DO GMAIL =====================
+  // Verificar se voltou do Google Auth
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const gmailStatus = params.get('gmail')
-
-    if (gmailStatus === 'sucesso') {
-      setMessage('✅ Gmail conectado com sucesso! Agora suas respostas automáticas vão chegar direto na sua conta.')
-      setGmailConnected(true)
-      // Limpa a URL
+    const status = params.get('status')
+    if (status === 'sucesso') {
+      setMessage('✅ Gmail conectado com sucesso!')
       window.history.replaceState({}, document.title, window.location.pathname)
-    } else if (gmailStatus === 'erro') {
-      setMessage('❌ Erro ao conectar o Gmail. Tente novamente.')
-      window.history.replaceState({}, document.title, window.location.pathname)
+    } else if (status === 'erro') {
+      setMessage('❌ Erro ao conectar o Gmail.')
     }
   }, [])
 
-  // ===================== CARREGAR USUÁRIO =====================
   useEffect(() => {
     const session = loadUserSession()
-    if (session) {
-      setUser(session)
-      loadUserData(session)
-    }
+    if (session) loadUserData(session)
   }, [loadUserData])
 
-  // ===================== CARREGAR VAGAS =====================
-  useEffect(() => {
-    if (!selectedSeason.csvFile) return
-
-    fetch(selectedSeason.csvFile)
-      .then(res => res.text())
-      .then(csv => {
-        Papa.parse(csv, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (result) => {
-            const parsed = result.data
-              .map((row, index) => parseJobFromCsv(row, index, selectedSeason.id))
-              .filter(job => job.title && job.employer)
-            setJobs(parsed)
-          }
-        })
-      })
-  }, [selectedSeason])
-
-  // ===================== CONECTAR GMAIL =====================
-  const connectGmail = async () => {
-    if (!user?.email) {
-      alert('Faça login primeiro')
-      return
-    }
-
+  // Função para conectar Gmail
+  const handleConnectGmail = async () => {
+    if (!user?.email) return alert('Sessão expirada. Faça login novamente.')
+    setLoading(true)
     try {
       const res = await fetch(`${API_URL}/api/gmail/auth-url?email=${encodeURIComponent(user.email)}`)
       const data = await res.json()
-
-      if (data.url) {
-        window.location.href = data.url
-      } else {
-        alert('Erro ao gerar link do Google')
-      }
+      if (data.url) window.location.href = data.url
     } catch (err) {
       console.error(err)
-      alert('Erro de conexão com o servidor')
+      alert('Erro ao conectar com o servidor.')
+    } finally {
+      setLoading(false)
     }
   }
-
-  const disconnectGmail = async () => {
-    if (!user?.email) return
-    if (!window.confirm('Desconectar sua conta do Gmail?')) return
-
-    try {
-      await fetch(`${API_URL}/api/gmail/disconnect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email })
-      })
-
-      setGmailConnected(false)
-      setGmailEmail('')
-      setMessage('Gmail desconectado com sucesso.')
-    } catch (err) {
-      alert('Erro ao desconectar')
-    }
-  }
-
-  // ===================== FUNÇÃO DE ENVIO (já adaptada para Gmail) =====================
-  const sendCandidature = async (job) => {
-    if (!isPremium && queue.length >= DEMO_LIMIT) {
-      alert('Limite de demonstração atingido. Ative a chave Premium.')
-      return
-    }
-
-    if (!accessKey && isPremium) {
-      alert('Chave Premium não encontrada.')
-      return
-    }
-
-    const newItem = {
-      id: createQueueId(),
-      job,
-      status: 'pending',
-      attempts: 0
-    }
-
-    setQueue(prev => [...prev, newItem])
-    setMessage(`Vaga "${job.title}" adicionada à fila.`)
-  }
-
-  // ... (o resto do seu código de fila, processamento, etc. continua igual)
 
   return (
-    <div className="min-h-screen bg-[#0a0f1c] text-white">
-      {/* Seu header, navbar, etc. permanecem iguais */}
+    <div className="min-h-screen bg-[#0a0f1c] text-white p-4 md:p-8">
+      <div className="max-w-4xl mx-auto">
+        <header className="text-center mb-12">
+          <h1 className="text-4xl font-black tracking-tighter bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+            FUTURE EUA H2B
+          </h1>
+          <p className="text-gray-400 mt-2">Painel de Controle e Automação</p>
+        </header>
 
-      <div className="max-w-6xl mx-auto p-6">
-        {/* ==================== SEÇÃO PREMIUM ==================== */}
-        <div className="bg-[#121a2b] rounded-2xl p-6 mb-8 border border-[#1e2a4a]">
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-            🔑 Chave Premium & Integrações
-          </h2>
+        {message && (
+          <div className="bg-blue-600/20 border border-blue-500 text-blue-200 p-4 rounded-xl mb-6 text-center animate-pulse">
+            {message}
+          </div>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Card da Chave Premium */}
-            <div className="bg-[#0f1625] p-6 rounded-xl border border-[#1e2a4a]">
-              <h3 className="text-lg font-semibold mb-4">Chave Premium</h3>
-              {/* Seu código atual de ativação de chave */}
-              {/* ... */}
+        <div className="grid grid-cols-1 gap-6">
+          {/* CARD GMAIL */}
+          <div className="bg-[#111827] border border-gray-800 p-6 rounded-2xl shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                📧 Integração Gmail
+              </h2>
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${gmailConnected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                {gmailConnected ? 'CONECTADO' : 'DESCONECTADO'}
+              </span>
             </div>
+            
+            <p className="text-gray-400 text-sm mb-6">
+              Conecte seu Gmail para enviar candidaturas pelo seu próprio e-mail e receber as respostas automáticas dos empregadores.
+            </p>
 
-            {/* NOVO CARD - CONECTAR GMAIL */}
-            <div className="bg-[#0f1625] p-6 rounded-xl border border-[#1e2a4a]">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                📧 Conectar Gmail
-                {gmailConnected && <span className="text-green-400 text-sm">(Conectado)</span>}
-              </h3>
-              
-              <p className="text-gray-400 text-sm mb-6">
-                Conecte sua conta do Gmail para que as respostas automáticas dos empregadores (férias, vaga encerrada, etc.) cheguem diretamente na sua caixa de entrada.
-              </p>
+            {!gmailConnected ? (
+              <button 
+                onClick={handleConnectGmail}
+                disabled={loading}
+                className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                {loading ? 'Carregando...' : '🔗 Conectar meu Gmail'}
+              </button>
+            ) : (
+              <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                <p className="text-xs text-gray-500 uppercase tracking-widest font-bold">Conta ativa</p>
+                <p className="text-emerald-400 font-mono mt-1">{gmailEmail || user?.email}</p>
+              </div>
+            )}
+          </div>
 
-              {gmailConnected ? (
-                <div className="space-y-4">
-                  <div className="bg-green-900/30 border border-green-500 rounded-lg p-4">
-                    <p className="text-green-400">✅ Conectado como:</p>
-                    <p className="font-mono text-sm mt-1">{gmailEmail || user?.email}</p>
-                  </div>
-                  <button
-                    onClick={disconnectGmail}
-                    className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition"
-                  >
-                    Desconectar Gmail
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={connectGmail}
-                  className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 rounded-xl font-bold text-lg transition-all active:scale-95"
-                >
-                  🔗 Conectar meu Gmail
-                </button>
-              )}
-
-              <p className="text-[10px] text-gray-500 mt-4 text-center">
-                Suas respostas automáticas dos empregadores vão chegar direto na sua conta do Gmail.
-              </p>
-            </div>
+          {/* CARD PREMIUM */}
+          <div className="bg-[#111827] border border-gray-800 p-6 rounded-2xl shadow-xl">
+             <h2 className="text-xl font-bold mb-4">🔑 Status da Licença</h2>
+             <div className="flex items-center justify-between">
+                <p className="text-gray-400">Plano Atual:</p>
+                <p className={isPremium ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                   {isPremium ? 'Premium (100 envios/dia)' : 'Gratuito (10 envios)'}
+                </p>
+             </div>
+             {!isPremium && (
+                <button className="mt-4 w-full bg-emerald-600 py-3 rounded-xl font-bold">💎 Ativar Chave Premium</button>
+             )}
           </div>
         </div>
 
-        {/* Resto do seu código (fila, vagas, etc.) permanece igual */}
-        {/* ... seu código original continua aqui ... */}
-
+        <footer className="mt-12 text-center text-gray-600 text-sm">
+          @futureeuah2b — {new Date().getFullYear()}
+        </footer>
       </div>
     </div>
   )
