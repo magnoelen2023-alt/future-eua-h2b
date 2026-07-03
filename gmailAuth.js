@@ -1,65 +1,80 @@
 import { google } from 'googleapis'
 
-function createOAuthClient() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  )
-}
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+)
 
 export function getAuthUrl(userEmail) {
-  const client = createOAuthClient()
-  return client.generateAuthUrl({
+  const scopes = ['https://www.googleapis.com/auth/gmail.send']
+
+  return oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/gmail.send'],
+    scope: scopes,
     prompt: 'consent',
-    state: userEmail,
+    state: userEmail
   })
 }
 
 export async function getTokensFromCode(code) {
-  const client = createOAuthClient()
-  const { tokens } = await client.getToken(code)
+  const { tokens } = await oauth2Client.getToken(code)
   return tokens
 }
 
-function buildRawEmail({ from, fromName, to, subject, htmlBody, attachments = [] }) {
-  const boundary = 'future_eua_' + Date.now()
-  let msg = ''
-  msg += `From: ${fromName ? `"${fromName}" <${from}>` : from}\r\n`
-  msg += `To: ${to}\r\n`
-  msg += `Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=\r\n`
-  msg += 'MIME-Version: 1.0\r\n'
-  msg += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`
+function getAuthenticatedClient(refreshToken) {
+  const client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  )
 
-  msg += `--${boundary}\r\n`
-  msg += 'Content-Type: text/html; charset="UTF-8"\r\n'
-  msg += 'Content-Transfer-Encoding: base64\r\n\r\n'
-  msg += Buffer.from(htmlBody).toString('base64') + '\r\n\r\n'
+  client.setCredentials({ refresh_token: refreshToken })
+  return client
+}
+
+function buildRawEmail({ from, to, subject, htmlBody, attachments = [] }) {
+  const boundary = 'future_eua_boundary_' + Date.now()
+
+  let message = ''
+  message += `From: ${from}\r\n`
+  message += `To: ${to}\r\n`
+  message += `Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=\r\n`
+  message += `MIME-Version: 1.0\r\n`
+  message += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`
+
+  message += `--${boundary}\r\n`
+  message += `Content-Type: text/html; charset="UTF-8"\r\n`
+  message += `Content-Transfer-Encoding: 7bit\r\n\r\n`
+  message += `${htmlBody}\r\n\r\n`
 
   for (const att of attachments) {
-    msg += `--${boundary}\r\n`
-    msg += `Content-Type: application/pdf; name="${att.filename}"\r\n`
-    msg += `Content-Disposition: attachment; filename="${att.filename}"\r\n`
-    msg += 'Content-Transfer-Encoding: base64\r\n\r\n'
-    msg += att.content.toString('base64') + '\r\n\r\n'
+    message += `--${boundary}\r\n`
+    message += `Content-Type: ${att.mimeType || 'application/pdf'}; name="${att.filename}"\r\n`
+    message += `Content-Disposition: attachment; filename="${att.filename}"\r\n`
+    message += `Content-Transfer-Encoding: base64\r\n\r\n`
+    message += `${att.contentBase64}\r\n\r\n`
   }
 
-  msg += `--${boundary}--`
+  message += `--${boundary}--`
 
-  return Buffer.from(msg)
+  return Buffer.from(message)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 }
 
-export async function sendEmailViaGmail({ refreshToken, from, fromName, to, subject, htmlBody, attachments = [] }) {
-  const client = createOAuthClient()
-  client.setCredentials({ refresh_token: refreshToken })
-  const gmail = google.gmail({ version: 'v1', auth: client })
-  const raw = buildRawEmail({ from, fromName, to, subject, htmlBody, attachments })
-  const result = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } })
+export async function sendEmailViaGmail({ refreshToken, from, to, subject, htmlBody, attachments = [] }) {
+  const authClient = getAuthenticatedClient(refreshToken)
+  const gmail = google.gmail({ version: 'v1', auth: authClient })
+
+  const raw = buildRawEmail({ from, to, subject, htmlBody, attachments })
+
+  const result = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw }
+  })
+
   return result.data
 }
