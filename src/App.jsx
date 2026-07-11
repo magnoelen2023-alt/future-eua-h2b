@@ -9,8 +9,9 @@ const CONTACT_LINK = 'https://wa.me/5575999866105?text=Olá,%20quero%20comprar%2
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 const USER_SESSION_KEY = 'h2b-user-session'
 
+// 🔥 CORREÇÃO 1: Atualizado para o ID correto e o arquivo CSV correto de 2026
 const seasons = [
-  { id: 'winter-2026', label: '❄ Inverno 2026', short: 'Inverno', csvFile: '/vagas_inverno_2025_h2b.csv' },
+  { id: 'winter-2026', label: '❄ Inverno 2026', short: 'Inverno', csvFile: '/vagas_inverno_2026_h2b.csv' },
   { id: 'summer-2026', label: '☀ Verão 2026', short: 'Verão', csvFile: null },
 ]
 
@@ -58,20 +59,22 @@ function formatWageValue(value = '') {
   return clean ? (clean.includes('$') ? clean : `$${clean}/h`) : 'A combinar'
 }
 
+// 🔥 CORREÇÃO 2: Adicionado mapeamento robusto (Inglês e Português). O Gmail vai voltar a funcionar porque agora achará o E-mail.
 function parseJobFromCsv(row, index, seasonId) {
-  const caseNumber = getRowValue(row, ['Case number'])
-  const employer = getRowValue(row, ['Nome da empresa'])
-  const state = formatState(getRowValue(row, ['Estado']))
-  const title = getRowValue(row, ['Título do cargo', 'Titulo do cargo'])
-  const contact = getRowValue(row, ['E-mail do empregador', 'Email do empregador'])
-  const phone = getRowValue(row, ['Telefone do empregador'])
-  const description = getRowValue(row, ['Responsabilidades do cargo', 'Responsabilidade do cargo'])
-  const city = getRowValue(row, ['Cidade'])
-  const visaType = getRowValue(row, ['Tipo do visto']) || 'H-2B'
-  const wageRaw = getRowValue(row, ['wage_per_hour'])
-  const startDate = formatDate(getRowValue(row, ['Data de início', 'Data de inicio']))
-  const endDate = formatDate(getRowValue(row, ['Data de fim']))
-  const agent = getRowValue(row, ['Nome do advogado do agente'])
+  const caseNumber = getRowValue(row, ['Case number', 'case number', 'CASE_NUMBER'])
+  const employer = getRowValue(row, ['Nome da empresa', 'nome da empresa', 'EMPLOYER_NAME', 'Employer Name'])
+  const state = formatState(getRowValue(row, ['Estado', 'estado', 'EMPLOYER_STATE', 'Employer State', 'State']))
+  const title = getRowValue(row, ['Título do cargo', 'Titulo do cargo', 'JOB_TITLE', 'Job Title'])
+  const contact = getRowValue(row, ['E-mail do empregador', 'Email do empregador', 'EMPLOYER_EMAIL', 'Employer Email', 'Email'])
+  const phone = getRowValue(row, ['Telefone do empregador', 'telefone do empregador', 'EMPLOYER_PHONE', 'Employer Phone', 'Phone'])
+  const description = getRowValue(row, ['Responsabilidades do cargo', 'Responsabilidade do cargo', 'JOB_DUTIES', 'Job Duties', 'Description'])
+  const city = getRowValue(row, ['Cidade', 'cidade', 'EMPLOYER_CITY', 'Employer City', 'City'])
+  const visaType = getRowValue(row, ['Tipo do visto', 'VISA_CLASS', 'Visa Class']) || 'H-2B'
+  const wageRaw = getRowValue(row, ['wage_per_hour', 'WAGE_RATE_OF_PAY_FROM', 'Wage', 'Basic Wage'])
+  const startDate = formatDate(getRowValue(row, ['Data de início', 'Data de inicio', 'PERIOD_OF_EMPLOYMENT_START_DATE', 'Start Date']))
+  const endDate = formatDate(getRowValue(row, ['Data de fim', 'PERIOD_OF_EMPLOYMENT_END_DATE', 'End Date']))
+  const agent = getRowValue(row, ['Nome do advogado do agente', 'AGENT_NAME', 'Agent Name', 'AGENT_POC_EMAIL'])
+  
   return {
     seasonId, id: `${seasonId}-${caseNumber || index}`, number: index + 1,
     title: title || 'Vaga sem título', category: detectCategory(title),
@@ -179,7 +182,8 @@ export default function App() {
   const [user, setUser] = useState(savedUser)
   const [logged, setLogged] = useState(!!savedUser)
 
-  const [selectedSeason, setSelectedSeason] = useState('winter-2025')
+  // 🔥 CORREÇÃO 3: Inicializando a temporada correta (2026)
+  const [selectedSeason, setSelectedSeason] = useState('winter-2026')
   const [sentLogs, setSentLogs] = useState([])
   const [queue, setQueue] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
@@ -236,7 +240,8 @@ export default function App() {
         localStorage.setItem(USER_SESSION_KEY, JSON.stringify(data))
         setSentLogs(Array.isArray(data.sent_logs) ? data.sent_logs : [])
         setQueue(Array.isArray(data.queue_data) ? data.queue_data : [])
-        setSelectedSeason(data.selected_season || 'winter-2025')
+        // 🔥 CORREÇÃO 4: Fallback atualizado para winter-2026
+        setSelectedSeason(data.selected_season || 'winter-2026')
         
         // Sincroniza estado de conexão do Gmail do banco de dados
         setGmailConnected(!!data.gmail_connected)
@@ -256,7 +261,6 @@ export default function App() {
     } catch (err) { console.warn('❌ Erro ao salvar no Supabase:', err.message); }
   }, [])
 
-  // Detecta o retorno do Google OAuth de forma automática
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const status = params.get('status')
@@ -307,8 +311,8 @@ export default function App() {
           const response = await fetch(season.csvFile)
           const csvText = await response.text()
           const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true })
-          loadedJobs.push(...parsed.data.filter(r => r['Case number']).map((r, i) => parseJobFromCsv(r, i, season.id)))
-        } catch (e) { console.error(e); }
+          loadedJobs.push(...parsed.data.filter(r => getRowValue(r, ['Case number', 'CASE_NUMBER', 'case number'])).map((r, i) => parseJobFromCsv(r, i, season.id)))
+        } catch (e) { console.error('Erro ao ler CSV:', e); }
       }
       setAllJobs(loadedJobs)
       setLoadingJobs(false)
@@ -476,7 +480,7 @@ export default function App() {
         cover_letter_path: coverLetterUrl,
         sent_logs: [],
         queue_data: [],
-        selected_season: 'winter-2025',
+        selected_season: 'winter-2026', // 🔥 CORREÇÃO 5: Usuários novos nascem no Inverno 2026
       }
       const { data, error } = await supabase.from('users').insert([newUser]).select().single()
       if (error) throw error
@@ -576,12 +580,10 @@ export default function App() {
     reader.readAsDataURL(file)
   }
 
-  // CHAMADA GMAIL API DO GOOGLE
   const handleConnectGmail = async () => {
     if (!user?.email) return alert('Sessão expirada. Faça login novamente.')
     setLoadingGmail(true)
     
-    // Força uso dinâmico do Render ou do Localhost
     const activeApiUrl = window.location.hostname.includes('vercel.app')
       ? 'https://future-eua-h2b-api.onrender.com'
       : API_URL;
@@ -800,7 +802,6 @@ export default function App() {
             <div className="form-section"><h3>Documentos</h3><div className="grid two"><label>Currículo Principal<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('resume', e)} disabled={uploadingFiles} />{profileForm.resumeFileName && <small>✅ {profileForm.resumeFileName}</small>}{user?.resume1_path && <small style={{color: '#666'}}>🔗 <a href={user.resume1_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label><label>Carta de Apresentação<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('coverLetter', e)} disabled={uploadingFiles} />{profileForm.coverLetterFileName && <small>✅ {profileForm.coverLetterFileName}</small>}{user?.cover_letter_path && <small style={{color: '#666'}}>🔗 <a href={user.cover_letter_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label></div></div>
             <div className="form-section"><h3>Mensagem padrão para empregador</h3><label><textarea rows="6" value={profileForm.employerMessage || ''} onChange={e => setProfileForm(p => ({ ...p, employerMessage: e.target.value }))} /></label></div>
 
-            {/* 📧 BLOCO GMAIL INTEGRADO NA EDICÃO DE PERFIL */}
             <div className="form-section gmail-integration-box" style={{ background: 'rgba(26, 58, 143, 0.1)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(26, 58, 143, 0.3)', marginTop: '20px' }}>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>📧 Conexão Gmail</h3>
               <p style={{ fontSize: '13px', opacity: 0.8, marginBottom: '15px', lineHeight: '1.4' }}>
@@ -881,7 +882,6 @@ function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sen
         <div className="dashboard-hero"><div><span className="pill">Painel principal</span><h2>Dashboard da temporada</h2><p>Acompanhe progresso geral e status do sistema.</p></div><div className="season-box"><label>Temporada</label><select value={selectedSeason} onChange={e => setSelectedSeason(e.target.value)}>{seasons.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div></div>
         <div className="key-card"><div><strong>{isPremium ? '✅ Conta Premium Ativa' : '🔑 Acesso Demonstração'}</strong><p>Chave: <span>{user?.access_key || FREE_ACCESS_KEY}</span></p>{!isPremium && <p style={{ color: '#fbbf24', marginTop: 6 }}>Envios de teste: <strong>{totalSentEver}</strong> / {DEMO_LIMIT}</p>}</div><div className="price-tag">{isPremium ? '🚀 Premium Ativo' : 'R$200/temporada'}</div></div>
         
-        {/* 📧 BLOCO DO GMAIL NO DASHBOARD */}
         <section className="panel" style={{ marginTop: '20px', border: '1px solid rgba(26, 58, 143, 0.3)', background: 'rgba(26, 58, 143, 0.05)' }}>
           <div className="panel-head">
             <div>
