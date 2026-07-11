@@ -121,9 +121,44 @@ async function prepareAttachments(attachments = []) {
   return prepared
 }
 
+// ===================== NOVA FUNÇÃO: BUSCA ROBUSTA DE USUÁRIO GMAIL =====================
+async function findGmailUser(userId, candidateEmail) {
+  // 1. TENTATIVA PRIORITÁRIA: Busca pelo ID (Chave Primária - 100% confiável)
+  if (userId) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, gmail_connected, gmail_refresh_token, email, gmail_email')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (!error && data) {
+      console.log(`🔍 Usuário localizado via ID (${userId}). Gmail conectado: ${!!data.gmail_connected}`)
+      return data
+    }
+    console.warn(`⚠️ Não encontrou usuário pelo ID ${userId}. Tentando fallback por e-mail...`)
+  }
+
+  // 2. FALLBACK: Busca pelo e-mail (case-insensitive para evitar erros de digitação/maiúsculas)
+  if (candidateEmail) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, gmail_connected, gmail_refresh_token, email, gmail_email')
+      .ilike('email', candidateEmail.trim())
+      .maybeSingle()
+
+    if (!error && data) {
+      console.log(`🔍 Usuário localizado via E-MAIL (${candidateEmail}). Gmail conectado: ${!!data.gmail_connected}`)
+      return data
+    }
+  }
+
+  console.error('❌ Usuário não encontrado nem por ID nem por E-mail.')
+  return null
+}
+
 // ===================== ROTAS =====================
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: `Backend v8.0 - Gmail API + Brevo | Limite Fixo: ${DAILY_LIMIT_PER_USER}/dia` })
+  res.json({ ok: true, message: `Backend v8.1 - Gmail API (Fix UserId) + Brevo | Limite Fixo: ${DAILY_LIMIT_PER_USER}/dia` })
 })
 
 // Rota 1: gera o link de autorização do Google
@@ -156,7 +191,7 @@ app.get('/api/gmail/callback', async (req, res) => {
         gmail_refresh_token: tokens.refresh_token,
         gmail_connected_at: new Date().toISOString()
       })
-      .eq('email', userEmail);
+      .ilike('email', userEmail);
 
     if (error) {
       console.error('Erro ao salvar tokens no Supabase:', error);
@@ -232,15 +267,16 @@ app.get('/api/daily-stats', async (req, res) => {
   res.json({ ok: true, dailySent: count, dailyLimit: DAILY_LIMIT_PER_USER, remaining: Math.max(0, DAILY_LIMIT_PER_USER - count) })
 })
 
-// ===================== ROTA PRINCIPAL DE ENVIO (COM GMAIL API) =====================
+// ===================== ROTA PRINCIPAL DE ENVIO (COM GMAIL API CORRIGIDO) =====================
 app.post('/api/send-candidature', async (req, res) => {
   try {
     const {
+      userId, // <-- AGORA CAPTURAMOS O ID QUE O FRONTEND ENVIA
       candidateName, candidateEmail, candidatePhone, employerName, employerEmail,
       jobTitle, jobLocation, caseNumber, messageBody, attachments, licenseKey
     } = req.body
 
-    console.log('📨 Processando candidatura de:', candidateName, 'para:', employerName)
+    console.log('📨 Processando candidatura de:', candidateName, '(ID:', userId, ') para:', employerName)
 
     if (!licenseKey) return res.status(400).json({ ok: false, error: 'LicenseKey necessária.' })
     if (!candidateEmail || !jobTitle) return res.status(400).json({ ok: false, error: 'Dados faltantes.' })
@@ -252,14 +288,11 @@ app.post('/api/send-candidature', async (req, res) => {
 
     const emailAttachments = await prepareAttachments(attachments)
 
-    // Busca o usuário para verificar se tem Gmail conectado
-    const { data: user } = await supabase
-      .from('users')
-      .select('gmail_connected, gmail_refresh_token, email')
-      .eq('email', candidateEmail)
-      .single();
+    // 🔧 CORREÇÃO PRINCIPAL: Busca robusta priorizando o ID do usuário
+    const user = await findGmailUser(userId, candidateEmail)
+    const useGmail = !!(user?.gmail_connected && user?.gmail_refresh_token)
 
-    const useGmail = user?.gmail_connected && user?.gmail_refresh_token;
+    console.log(`📌 Decisão de envio: ${useGmail ? 'GMAIL API 🟢' : 'BREVO (fallback) 🟡'}`)
 
     // ===================== 1. HTML PARA O EMPREGADOR =====================
     const employerHtml = `
@@ -294,11 +327,12 @@ app.post('/api/send-candidature', async (req, res) => {
 
     const target = process.env.TEST_EMPLOYER_EMAIL || employerEmail
     let employerSent = false
+    let sentVia = 'brevo'
 
     if (target?.includes('@')) {
-      try {
-        if (useGmail) {
-          // 🟢 ENVIA PELO GMAIL DO USUÁRIO
+      if (useGmail) {
+        // 🟢 TENTATIVA 1: ENVIA PELO GMAIL DO USUÁRIO
+        try {
           const gmailAttachments = emailAttachments.map(a => ({
             filename: a.filename,
             contentBase64: a.content.toString('base64'),
@@ -307,30 +341,22 @@ app.post('/api/send-candidature', async (req, res) => {
 
           await sendEmailViaGmail({
             refreshToken: user.gmail_refresh_token,
-            from: candidateEmail,
+            from: user.email, // usa o e-mail real cadastrado no banco, garantindo consistência
             to: target,
             subject: `Application: ${candidateName} — ${jobTitle}`,
             htmlBody: employerHtml,
             attachments: gmailAttachments
           });
-          console.log(`✅ Enviado via Gmail API para: ${target}`);
-        } else {
-          // 🟡 FALLBACK: Brevo
-          await sendEmailBrevo({
-            to: target,
-            toName: employerName,
-            subject: `Application: ${candidateName} — ${jobTitle}`,
-            html: employerHtml,
-            replyTo: candidateEmail,
-            attachments: emailAttachments,
-          });
-          console.log(`✅ Enviado via Brevo para: ${target} (replyTo: ${candidateEmail})`);
-        }
-        employerSent = true;
-      } catch (err) { 
-        console.error('Erro ao enviar ao empregador:', err.message);
-        // Se der erro no Gmail, tenta fallback no Brevo (opcional, mas recomendado)
-        if (useGmail) {
+
+          employerSent = true
+          sentVia = 'gmail'
+          console.log(`✅ ENVIADO VIA GMAIL API para: ${target} (conta: ${user.email})`);
+        } catch (err) {
+          // 🔴 LOG DETALHADO DO ERRO - ESSENCIAL PARA DIAGNÓSTICO
+          console.error('❌ ERRO NO ENVIO VIA GMAIL API:', err.message)
+          console.error('Detalhes completos do erro Gmail:', err)
+
+          // Fallback para Brevo se o Gmail falhar
           try {
             await sendEmailBrevo({
               to: target,
@@ -340,11 +366,29 @@ app.post('/api/send-candidature', async (req, res) => {
               replyTo: candidateEmail,
               attachments: emailAttachments,
             });
-            employerSent = true;
-            console.log(`✅ Fallback Brevo funcionou após erro no Gmail.`);
+            employerSent = true
+            sentVia = 'brevo-fallback'
+            console.log(`⚠️ Fallback Brevo funcionou após falha no Gmail.`);
           } catch (err2) {
-            console.error('Erro no fallback Brevo:', err2.message);
+            console.error('❌ Erro no fallback Brevo também:', err2.message);
           }
+        }
+      } else {
+        // 🟡 SEM GMAIL CONECTADO: Envia direto via Brevo
+        try {
+          await sendEmailBrevo({
+            to: target,
+            toName: employerName,
+            subject: `Application: ${candidateName} — ${jobTitle}`,
+            html: employerHtml,
+            replyTo: candidateEmail,
+            attachments: emailAttachments,
+          });
+          employerSent = true
+          sentVia = 'brevo'
+          console.log(`✅ Enviado via Brevo (sem Gmail conectado) para: ${target}`);
+        } catch (err) {
+          console.error('Erro ao enviar via Brevo:', err.message);
         }
       }
     }
@@ -361,6 +405,7 @@ app.post('/api/send-candidature', async (req, res) => {
           <div style="background:#f0fdf4;padding:14px;border-radius:8px;margin:16px 0;border-left:4px solid #16a34a;">
             <p style="margin:0;"><strong>Vaga:</strong> ${jobTitle}</p>
             <p style="margin:6px 0 0;"><strong>Envios hoje:</strong> ${currentCount + 1} de ${DAILY_LIMIT_PER_USER}</p>
+            <p style="margin:6px 0 0;"><strong>Canal de envio:</strong> ${sentVia === 'gmail' ? '📧 Seu Gmail conectado' : '📮 Sistema (Brevo)'}</p>
           </div>
           <p style="font-size:13px;color:#666;margin-bottom:20px;">
             Qualquer resposta do empregador (automática ou manual) chegará diretamente na sua caixa de entrada.
@@ -392,7 +437,9 @@ app.post('/api/send-candidature', async (req, res) => {
       dailyLimit: DAILY_LIMIT_PER_USER,
       employerSent,
       candidateSent,
-      sentVia: useGmail ? 'gmail' : 'brevo',
+      sentVia,
+      gmailUserFound: !!user,
+      gmailConnectedFlag: !!user?.gmail_connected,
     })
   } catch (error) {
     console.error('❌ ERRO CRÍTICO:', error)
@@ -401,5 +448,5 @@ app.post('/api/send-candidature', async (req, res) => {
 })
 
 app.listen(PORT, () => {
-  console.log(`🚀 v8.0 Online na porta ${PORT} | Gmail API + Brevo | Limite Fixo: ${DAILY_LIMIT_PER_USER}`)
+  console.log(`🚀 v8.1 Online na porta ${PORT} | Gmail API (Fix UserId) + Brevo | Limite Fixo: ${DAILY_LIMIT_PER_USER}`)
 })
