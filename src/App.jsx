@@ -6,11 +6,11 @@ const DAILY_LIMIT = 100
 const DEMO_LIMIT = 10
 const FREE_ACCESS_KEY = 'FREE-H2B-2026'
 const CONTACT_LINK = 'https://wa.me/5575999866105?text=Olá,%20quero%20comprar%20a%20chave%20Premium.%20Meu%20e-mail%20é:%20'
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_URL = import.meta.env.VITE_API_URL || 'https://future-eua-h2b-api.onrender.com'
 const USER_SESSION_KEY = 'h2b-user-session'
 
 const seasons = [
-  { id: 'winter-2025', label: '❄ Inverno 2025', short: 'Inverno', csvFile: '/vagas_inverno_2025_h2b.csv' },
+  { id: 'winter-2026', label: '❄ Inverno 2026', short: 'Inverno', csvFile: '/vagas_inverno_2026_h2b.csv' },
   { id: 'summer-2026', label: '☀ Verão 2026', short: 'Verão', csvFile: null },
 ]
 
@@ -27,6 +27,13 @@ function getRowValue(row, possibleKeys = []) {
     if (found !== undefined && found !== null && String(found).trim() !== '') return String(found).trim()
   }
   return ''
+}
+
+function normalizeSeasonId(value = '') {
+  const raw = String(value || '').trim()
+  if (!raw) return 'winter-2026'
+  if (raw === 'winter-2025') return 'winter-2026'
+  return raw
 }
 
 function detectCategory(title = '') {
@@ -58,30 +65,89 @@ function formatWageValue(value = '') {
   return clean ? (clean.includes('$') ? clean : `$${clean}/h`) : 'A combinar'
 }
 
+function parseVacancies(value = '') {
+  const raw = String(value ?? '').trim()
+  const clean = raw.replace(/[^\d]/g, '')
+  const n = parseInt(clean, 10)
+  return Number.isFinite(n) ? n : 0
+}
+
+function cleanLongText(value = '') {
+  return String(value || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function translateJobTitleToPt(title = '') {
+  const t = title.toLowerCase().trim()
+  if (t.includes('dishwash')) return 'Lavador de pratos'
+  if (t.includes('server')) return 'Garçom / Atendente'
+  if (t.includes('waiter')) return 'Garçom'
+  if (t.includes('waitress')) return 'Garçonete'
+  if (t.includes('cook')) return 'Cozinheiro'
+  if (t.includes('chef')) return 'Chef de cozinha'
+  if (t.includes('housekeep')) return 'Camareira / Arrumação'
+  if (t.includes('room attendant')) return 'Atendente de quartos'
+  if (t.includes('clean')) return 'Auxiliar de limpeza'
+  if (t.includes('janitor')) return 'Zelador'
+  if (t.includes('landscape')) return 'Trabalhador de paisagismo'
+  if (t.includes('groundskeep')) return 'Manutenção de áreas externas'
+  if (t.includes('roof')) return 'Telhadista'
+  if (t.includes('construction')) return 'Trabalhador da construção'
+  if (t.includes('laborer')) return 'Trabalhador geral'
+  if (t.includes('maintenance')) return 'Auxiliar de manutenção'
+  if (t.includes('laundry')) return 'Auxiliar de lavanderia'
+  if (t.includes('cashier')) return 'Caixa'
+  if (t.includes('bartender')) return 'Bartender'
+  if (t.includes('painter')) return 'Pintor'
+  if (t.includes('carpenter')) return 'Carpinteiro'
+  if (t.includes('farm')) return 'Trabalhador rural'
+  return title
+}
+
+function getDisplayTitle(job) {
+  const pt = String(job?.titlePt || '').trim()
+  if (pt) return pt
+  return translateJobTitleToPt(job?.title || '')
+}
+
+function getDisplayDescription(job) {
+  return job?.descriptionPt || job?.description || 'Descrição não informada.'
+}
+
 function parseJobFromCsv(row, index, seasonId) {
-  const caseNumber = getRowValue(row, ['Case number'])
-  const employer = getRowValue(row, ['Nome da empresa'])
-  const state = formatState(getRowValue(row, ['Estado']))
-  const title = getRowValue(row, ['Título do cargo', 'Titulo do cargo'])
-  const contact = getRowValue(row, ['E-mail do empregador', 'Email do empregador'])
-  const phone = getRowValue(row, ['Telefone do empregador'])
-  const description = getRowValue(row, ['Responsabilidades do cargo', 'Responsabilidade do cargo'])
-  const city = getRowValue(row, ['Cidade'])
+  const caseNumber = getRowValue(row, ['Case number', 'case_number', 'Case Number'])
+  const employer = getRowValue(row, ['Nome da empresa', 'Business Name', 'employer'])
+  const state = formatState(getRowValue(row, ['Estado', 'Worksite State', 'state']))
+  const title = getRowValue(row, ['Título do cargo', 'Titulo do cargo', 'Cargo', 'Job Title', 'title'])
+  const contact = getRowValue(row, ['E-mail do empregador', 'Email do empregador', 'Email', 'contact'])
+  const phone = getRowValue(row, ['Telefone do empregador', 'Telefone', 'phone'])
+  const description = getRowValue(row, ['Responsabilidades do cargo', 'Responsabilidade do cargo', 'Descricao_Vaga', 'Description', 'description'])
+  const city = getRowValue(row, ['Cidade', 'city'])
   const visaType = getRowValue(row, ['Tipo do visto']) || 'H-2B'
-  const wageRaw = getRowValue(row, ['wage_per_hour'])
-  const startDate = formatDate(getRowValue(row, ['Data de início', 'Data de inicio']))
-  const endDate = formatDate(getRowValue(row, ['Data de fim']))
-  const agent = getRowValue(row, ['Nome do advogado do agente'])
+  const wageRaw = getRowValue(row, ['wage_per_hour', 'Wage_Hora', 'wage'])
+  const vacancies = parseVacancies(getRowValue(row, ['Qtd_Vagas', 'Qtd Vagas', 'vacancies'])) || 1
+  const startDate = formatDate(getRowValue(row, ['Data de início', 'Data de inicio', 'Begin Date', 'begin_date']))
+  const endDate = formatDate(getRowValue(row, ['Data de fim', 'Final Date', 'End Date', 'end_date']))
+  const agent = getRowValue(row, ['Nome do advogado do agente', 'Agent Attorney Name', 'agent_attorney_name'])
+  const randomizationGroup = getRowValue(row, ['Randomization Group', 'randomization_group'])
+
+  const titlePt = getRowValue(row, ['cargo_pt', 'Cargo_PT', 'title_pt', 'Cargo PT'])
+  const descriptionPt = cleanLongText(getRowValue(row, ['descricao_pt', 'Descricao_PT', 'description_pt', 'Descrição_PT']))
+
   return {
     seasonId, id: `${seasonId}-${caseNumber || index}`, number: index + 1,
     title: title || 'Vaga sem título', category: detectCategory(title),
     employer: employer || 'Empregador', city, state,
-    location: city && state ? `${city}, ${state}` : (city || state || 'EUA'),
-    fullLocation: city && state ? `${city}, ${state}, USA` : 'Estados Unidos',
-    available: 1, startDate, endDate, wage: formatWageValue(wageRaw),
+    location: state || 'EUA',
+    fullLocation: state ? `${state}, USA` : 'Estados Unidos',
+    available: vacancies, startDate, endDate, wage: formatWageValue(wageRaw),
     wageDetail: wageRaw ? `US$ ${wageRaw} por hora.` : 'Salário a combinar.',
-    caseNumber, contact, phone, visaType, agent,
+    caseNumber, contact, phone, visaType, agent, randomizationGroup,
     description: description || 'Descrição não informada.',
+    titlePt: titlePt || '',
+    descriptionPt: descriptionPt || '',
   }
 }
 
@@ -119,59 +185,6 @@ function getInitials(name = '') {
 
 function progressColor(p) { return p < 35 ? 'green' : p < 75 ? 'yellow' : 'red' }
 
-function translateJobTitleToPt(title = '') {
-  const t = title.toLowerCase().trim()
-  if (t.includes('dishwash')) return 'Lavador de pratos'
-  if (t.includes('server')) return 'Garçom / Atendente'
-  if (t.includes('waiter')) return 'Garçom'
-  if (t.includes('waitress')) return 'Garçonete'
-  if (t.includes('cook')) return 'Cozinheiro'
-  if (t.includes('chef')) return 'Chef de cozinha'
-  if (t.includes('housekeep')) return 'Camareira / Arrumação'
-  if (t.includes('room attendant')) return 'Atendente de quartos'
-  if (t.includes('clean')) return 'Auxiliar de limpeza'
-  if (t.includes('janitor')) return 'Zelador'
-  if (t.includes('landscape')) return 'Trabalhador de paisagismo'
-  if (t.includes('groundskeep')) return 'Manutenção de áreas externas'
-  if (t.includes('roof')) return 'Telhadista'
-  if (t.includes('construction')) return 'Trabalhador da construção'
-  if (t.includes('laborer')) return 'Trabalhador geral'
-  if (t.includes('maintenance')) return 'Auxiliar de manutenção'
-  if (t.includes('laundry')) return 'Auxiliar de lavanderia'
-  if (t.includes('cashier')) return 'Caixa'
-  if (t.includes('bartender')) return 'Bartender'
-  if (t.includes('painter')) return 'Pintor'
-  if (t.includes('carpenter')) return 'Carpinteiro'
-  if (t.includes('farm')) return 'Trabalhador rural'
-  return title
-}
-
-function getPortugueseResponsibilities(job) {
-  const title = (job?.title || '').toLowerCase()
-  const category = (job?.category || '').toLowerCase()
-  if (title.includes('dishwash')) return 'realizar a lavagem de pratos, copos, panelas, utensílios e equipamentos de cozinha, mantendo a área limpa, organizada e pronta para operação.'
-  if (title.includes('server') || title.includes('waiter')) return 'atender clientes, anotar pedidos, servir alimentos e bebidas, organizar mesas e apoiar o funcionamento do salão.'
-  if (title.includes('cook') || title.includes('chef')) return 'preparar alimentos, organizar ingredientes, manter os padrões de higiene da cozinha e apoiar a produção.'
-  if (title.includes('housekeep') || category.includes('hotelaria')) return 'executar limpeza, arrumação e organização de quartos e áreas internas, seguindo os padrões de higiene.'
-  if (title.includes('landscape')) return 'executar atividades de paisagismo e manutenção de áreas externas.'
-  return 'executar as atividades principais da função conforme orientação do empregador, respeitando padrões de qualidade e segurança.'
-}
-
-function buildPortugueseJobDescription(job) {
-  if (!job) return 'Selecione uma vaga para ver os detalhes.'
-  return `A vaga de ${translateJobTitleToPt(job.title)} está localizada em ${job.fullLocation}. Profissional responsável por ${getPortugueseResponsibilities(job)} O salário informado é: ${job.wageDetail}. Período: ${job.startDate} a ${job.endDate}. Visto: ${job.visaType}.`
-}
-
-function getLicenseKey(user = {}) {
-  return (
-    user?.access_key ||
-    user?.accessKey ||
-    user?.premium_access_key ||
-    user?.premiumAccessKey ||
-    ''
-  )
-}
-
 // ====================== COMPONENTE PRINCIPAL ======================
 export default function App() {
   const savedUser = useMemo(() => loadUserSession(), [])
@@ -179,7 +192,7 @@ export default function App() {
   const [user, setUser] = useState(savedUser)
   const [logged, setLogged] = useState(!!savedUser)
 
-  const [selectedSeason, setSelectedSeason] = useState('winter-2025')
+  const [selectedSeason, setSelectedSeason] = useState(normalizeSeasonId(savedUser?.selected_season))
   const [sentLogs, setSentLogs] = useState([])
   const [queue, setQueue] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
@@ -232,11 +245,45 @@ export default function App() {
       const { data, error } = await supabase.from('users').select('*').eq('id', userId).single()
       if (error) throw error
       if (data) {
-        setUser(data)
-        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(data))
-        setSentLogs(Array.isArray(data.sent_logs) ? data.sent_logs : [])
-        setQueue(Array.isArray(data.queue_data) ? data.queue_data : [])
-        setSelectedSeason(data.selected_season || 'winter-2025')
+        const normalizedSentLogs = Array.isArray(data.sent_logs)
+          ? data.sent_logs.map(l => l?.seasonId === 'winter-2025' ? { ...l, seasonId: 'winter-2026' } : l)
+          : []
+
+        const normalizedQueue = Array.isArray(data.queue_data)
+          ? data.queue_data.map(i => i?.seasonId === 'winter-2025' ? { ...i, seasonId: 'winter-2026' } : i)
+          : []
+
+        const normalizedData = {
+          ...data,
+          sent_logs: normalizedSentLogs,
+          queue_data: normalizedQueue,
+          selected_season: normalizeSeasonId(data.selected_season),
+        }
+
+        // Validação Inteligente de Mudança de Temporada
+        const currentSeasonId = 'winter-2026'
+        const userSeason = normalizeSeasonId(normalizedData.selected_season)
+
+        if (userSeason !== currentSeasonId) {
+          setSentLogs([])
+          setQueue([])
+          setSelectedSeason(currentSeasonId)
+
+          const resetUser = { ...normalizedData, sent_logs: [], queue_data: [], selected_season: currentSeasonId }
+          setUser(resetUser)
+          localStorage.setItem(USER_SESSION_KEY, JSON.stringify(resetUser))
+
+          await supabase
+            .from('users')
+            .update({ sent_logs: [], queue_data: [], selected_season: currentSeasonId })
+            .eq('id', userId)
+        } else {
+          setUser(normalizedData)
+          localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalizedData))
+          setSentLogs(normalizedSentLogs)
+          setQueue(normalizedQueue)
+          setSelectedSeason(userSeason)
+        }
         
         // Sincroniza estado de conexão do Gmail do banco de dados
         setGmailConnected(!!data.gmail_connected)
@@ -251,7 +298,7 @@ export default function App() {
   const saveToSupabase = useCallback(async (userId, newSentLogs, newQueue, newSeason) => {
     if (!userId || !dataLoadedRef.current) return
     try {
-      const { error } = await supabase.from('users').update({ sent_logs: newSentLogs, queue_data: newQueue, selected_season: newSeason }).eq('id', userId)
+      const { error } = await supabase.from('users').update({ sent_logs: newSentLogs, queue_data: newQueue, selected_season: normalizeSeasonId(newSeason) }).eq('id', userId)
       if (error) console.warn('Erro ao salvar:', error.message)
     } catch (err) { console.warn('❌ Erro ao salvar no Supabase:', err.message); }
   }, [])
@@ -307,7 +354,8 @@ export default function App() {
           const response = await fetch(season.csvFile)
           const csvText = await response.text()
           const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true })
-          loadedJobs.push(...parsed.data.filter(r => r['Case number']).map((r, i) => parseJobFromCsv(r, i, season.id)))
+          const rows = (parsed.data || []).filter(r => getRowValue(r, ['Case Number', 'Case number', 'case_number']))
+          loadedJobs.push(...rows.map((r, i) => parseJobFromCsv(r, i, season.id)))
         } catch (e) { console.error(e); }
       }
       setAllJobs(loadedJobs)
@@ -334,7 +382,7 @@ export default function App() {
   const categories = useMemo(() => ['Todas', ...new Set(jobs.map(j => j.category).filter(Boolean))], [jobs])
   const filteredJobs = useMemo(() => {
     return jobs.filter(job => {
-      const text = `${job.title} ${translateJobTitleToPt(job.title)} ${job.employer} ${job.location} ${job.category}`
+      const text = `${job.title} ${job.titlePt || ''} ${getDisplayTitle(job)} ${job.employer} ${job.location} ${job.category} ${job.caseNumber}`
       const matchSearch = text.toLowerCase().includes(search.toLowerCase())
       const matchCategory = categoryFilter === 'Todas' || job.category === categoryFilter
       const matchState = stateFilter === 'Todos' || job.state === stateFilter
@@ -343,7 +391,7 @@ export default function App() {
   }, [jobs, search, categoryFilter, stateFilter])
   const visibleJobs = filteredJobs.slice(0, 160)
   const selectedJob = jobs.find(j => j.id === selectedJobId) || visibleJobs[0] || null
-  const sentCount = sentLogs.filter(l => l.seasonId === selectedSeason).length
+  const sentCount = sentLogs.filter(l => normalizeSeasonId(l.seasonId) === selectedSeason).length
   const remainingCount = Math.max(0, totalSeasonJobs - sentCount)
   const progress = totalSeasonJobs > 0 ? Math.min(100, Math.round((sentCount / totalSeasonJobs) * 100)) : 0
   const barColor = progressColor(progress)
@@ -379,6 +427,7 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              email: user?.email, // Crucial para o Render carregar suas credenciais
               candidateName: user?.name,
               candidateEmail: user?.email,
               candidatePhone: user?.phone,
@@ -390,6 +439,7 @@ export default function App() {
               messageBody: user?.employer_message || user?.employerMessage,
               attachments,
               licenseKey,
+              gmailConnected, // Ativa a Gmail API via OAuth no backend
             }),
           })
           const data = await response.json().catch(() => ({}))
@@ -419,7 +469,7 @@ export default function App() {
       })()
     }, remaining)
     return () => clearTimeout(timer)
-  }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason, sentLogs])
+  }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason, sentLogs, gmailConnected])
 
   useEffect(() => {
     if (!activeSend) { setCountdown(0); return }
@@ -476,7 +526,7 @@ export default function App() {
         cover_letter_path: coverLetterUrl,
         sent_logs: [],
         queue_data: [],
-        selected_season: 'winter-2025',
+        selected_season: 'winter-2026',
       }
       const { data, error } = await supabase.from('users').insert([newUser]).select().single()
       if (error) throw error
@@ -631,6 +681,64 @@ export default function App() {
     }
   }
 
+  // NOVA FUNÇÃO: Reseta todos os envios e limpa o painel com 1 clique de forma segura!
+  const handleResetHistory = async () => {
+    if (!window.confirm("⚠️ Tem certeza que deseja zerar todas as suas candidaturas enviadas e esvaziar a fila de espera? Essa ação não pode ser desfeita.")) return
+    
+    setSyncing(true)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          sent_logs: [],
+          queue_data: []
+        })
+        .eq('id', user.id)
+
+      if (error) throw error
+
+      setSentLogs([])
+      setQueue([])
+      
+      const updatedUser = { ...user, sent_logs: [], queue_data: [] }
+      setUser(updatedUser)
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser))
+
+      alert("✅ Histórico e fila zerados com sucesso! Agora você pode começar a enviar novamente.")
+    } catch (err) {
+      alert("Erro ao zerar histórico: " + err.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // NOVA FUNÇÃO GMAIL: Permite desconectar o Gmail com segurança e forçar um novo login OAuth limpo se necessário!
+  const handleDisconnectGmail = async () => {
+    if (!window.confirm("Deseja realmente desconectar sua conta do Gmail? Suas candidaturas voltarão a ser enviadas pelo sistema padrão (Brevo).")) return
+    setLoadingGmail(true)
+    try {
+      const response = await fetch(`${API_URL}/api/gmail/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user?.email })
+      })
+      if (!response.ok) throw new Error('Falha ao desconectar no servidor')
+      
+      setGmailConnected(false)
+      setGmailEmail('')
+      
+      const updatedUser = { ...user, gmail_connected: false, gmail_email: null }
+      setUser(updatedUser)
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser))
+      
+      alert('✅ Gmail desconectado com sucesso!')
+    } catch (err) {
+      alert('Erro ao desconectar: ' + err.message)
+    } finally {
+      setLoadingGmail(false)
+    }
+  }
+
   function handleLogout() {
     setLogged(false)
     setPage('home')
@@ -763,7 +871,7 @@ export default function App() {
           systemStatus={systemStatus} finalBlocked={finalBlocked} dailyBlocked={dailyBlocked}
           todayQueued={todayQueued} dailyRemaining={dailyRemaining} queueLength={queue.length}
           activeSend={activeSend} countdown={countdown} onJobs={() => requireLogin('jobs')}
-          onProfile={openProfile} onLogout={handleLogout} totalSeasonJobs={totalSeasonJobs}
+          onProfile={openProfile} onLogout={handleLogout} onResetHistory={handleResetHistory} totalSeasonJobs={totalSeasonJobs}
           loadingJobs={loadingJobs} isPremium={isPremium} totalSentEver={totalSentEver}
           isDemoBlocked={isDemoBlocked} gmailConnected={gmailConnected} gmailEmail={gmailEmail}
           handleConnectGmail={handleConnectGmail} loadingGmail={loadingGmail}
@@ -811,6 +919,15 @@ export default function App() {
                 <div style={{ background: 'rgba(22, 163, 74, 0.1)', border: '1px solid #16a34a', padding: '12px', borderRadius: '8px' }}>
                   <p style={{ color: '#4ade80', fontSize: '14px', fontWeight: 'bold' }}>✅ Gmail Conectado</p>
                   <p style={{ fontSize: '12px', opacity: 0.7, marginTop: '4px' }}>Conta: {gmailEmail || user?.email}</p>
+                  <button 
+                    type="button" 
+                    className="ghost-btn" 
+                    style={{ width: '100%', marginTop: '10px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444' }} 
+                    onClick={handleDisconnectGmail}
+                    disabled={loadingGmail}
+                  >
+                    {loadingGmail ? '⏳ Carregando...' : '❌ Desconectar Gmail'}
+                  </button>
                 </div>
               ) : (
                 <button 
@@ -873,7 +990,7 @@ function Field({ label, value, onChange, type = 'text', error, disabled }) {
   )
 }
 
-function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sentCount, remainingCount, progress, barColor, todaySent, averageDaily, systemStatus, finalBlocked, dailyBlocked, todayQueued, dailyRemaining, queueLength, activeSend, countdown, onJobs, onProfile, onLogout, totalSeasonJobs, loadingJobs, isPremium, totalSentEver, isDemoBlocked, gmailConnected, gmailEmail, handleConnectGmail, loadingGmail }) {
+function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sentCount, remainingCount, progress, barColor, todaySent, averageDaily, systemStatus, finalBlocked, dailyBlocked, todayQueued, dailyRemaining, queueLength, activeSend, countdown, onJobs, onProfile, onLogout, onResetHistory, totalSeasonJobs, loadingJobs, isPremium, totalSentEver, isDemoBlocked, gmailConnected, gmailEmail, handleConnectGmail, loadingGmail }) {
   return (
     <main className="dashboard-page">
       <TopBar user={user} onDashboard={() => {}} onJobs={onJobs} onProfile={onProfile} onLogout={onLogout} finalBlocked={finalBlocked} />
@@ -927,7 +1044,13 @@ function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sen
         <section className="panel"><div className="panel-head"><div><h3>Progresso geral</h3><p>{currentSeason?.label}</p></div><strong>{progress}%</strong></div><div className="life-bar"><div className={`life-fill ${barColor}`} style={{ width: `${progress}%` }} /></div></section>
         <div className="stats-grid"><StatCard title="Hoje" value={`${todaySent} enviadas`} /><StatCard title="Na fila hoje" value={todayQueued} /><StatCard title="Média diária" value={averageDaily} /><StatCard title="Restante hoje" value={dailyRemaining} /></div>
         <section className="panel"><h3>Status da fila</h3><div className="queue-info"><div><strong>{queueLength}</strong><span>itens na fila</span></div><div><strong>{dailyRemaining}</strong><span>envios restantes</span></div><div><strong>{activeSend ? formatSeconds(countdown) : '—'}</strong><span>próximo envio</span></div></div></section>
-        <div className="actions-row">{!finalBlocked && !isDemoBlocked && (<button className="primary-btn" onClick={onJobs}>Abrir painel de vagas</button>)}{isDemoBlocked && (<button className="primary-btn" onClick={onJobs}>Ver vagas</button>)}<button className="ghost-btn" onClick={onProfile}>Editar perfil</button><button className="logout-btn" onClick={onLogout}>Sair</button></div>
+        <div className="actions-row">
+          {!finalBlocked && !isDemoBlocked && (<button className="primary-btn" onClick={onJobs}>Abrir painel de vagas</button>)}
+          {isDemoBlocked && (<button className="primary-btn" onClick={onJobs}>Ver vagas</button>)}
+          <button className="ghost-btn" onClick={onProfile}>Editar perfil</button>
+          <button className="ghost-btn" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444' }} onClick={onResetHistory}>Zerar Envios</button> {/* Botão físico para resetar dados */}
+          <button className="logout-btn" onClick={onLogout}>Sair</button>
+        </div>
       </section>
     </main>
   )
