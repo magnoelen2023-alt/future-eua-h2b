@@ -211,67 +211,14 @@ function translateJobTitleToPt(title = '') {
   return original
 }
 
-function translateDescriptionToPt(text = '') {
-  let t = String(text || '').trim()
-  if (!t) return 'Descrição não informada.'
+function getDisplayTitle(job) {
+  const pt = String(job?.titlePt || '').trim()
+  if (pt) return pt
+  return translateJobTitleToPt(job?.title || '')
+}
 
-  return t
-    .replace(/Assist with/gi, 'Auxiliar em')
-    .replace(/assist with/gi, 'auxiliar em')
-    .replace(/delivery/gi, 'entrega')
-    .replace(/set-up/gi, 'montagem')
-    .replace(/setup/gi, 'montagem')
-    .replace(/set up/gi, 'montagem')
-    .replace(/removal/gi, 'remoção')
-    .replace(/storage/gi, 'armazenamento')
-    .replace(/special events/gi, 'eventos especiais')
-    .replace(/event rental equipment/gi, 'equipamentos de aluguel para eventos')
-    .replace(/loading/gi, 'carregamento')
-    .replace(/unloading/gi, 'descarregamento')
-    .replace(/truck/gi, 'caminhão')
-    .replace(/trucks/gi, 'caminhões')
-    .replace(/warehouse/gi, 'depósito')
-    .replace(/tasks/gi, 'tarefas')
-    .replace(/task/gi, 'tarefa')
-    .replace(/cleaning/gi, 'limpeza')
-    .replace(/rental equipment/gi, 'equipamentos alugados')
-    .replace(/organization/gi, 'organização')
-    .replace(/inventory/gi, 'estoque')
-    .replace(/return/gi, 'retorno')
-    .replace(/requires supervision/gi, 'requer supervisão')
-    .replace(/job classification/gi, 'classificação do trabalho')
-    .replace(/description/gi, 'descrição')
-    .replace(/workers/gi, 'trabalhadores')
-    .replace(/worker/gi, 'trabalhador')
-    .replace(/must be able to/gi, 'deve ser capaz de')
-    .replace(/perform/gi, 'executar')
-    .replace(/duties/gi, 'funções')
-    .replace(/operate/gi, 'operar')
-    .replace(/equipment/gi, 'equipamentos')
-    .replace(/tools/gi, 'ferramentas')
-    .replace(/clean/gi, 'limpar')
-    .replace(/maintain/gi, 'manter')
-    .replace(/grounds/gi, 'áreas externas')
-    .replace(/property/gi, 'propriedade')
-    .replace(/kitchen/gi, 'cozinha')
-    .replace(/food/gi, 'alimentos')
-    .replace(/hotel/gi, 'hotel')
-    .replace(/rooms/gi, 'quartos')
-    .replace(/guests/gi, 'hóspedes')
-    .replace(/landscaping/gi, 'paisagismo')
-    .replace(/construction/gi, 'construção')
-    .replace(/restaurant/gi, 'restaurante')
-    .replace(/safety/gi, 'segurança')
-    .replace(/standards/gi, 'padrões')
-    .replace(/including/gi, 'incluindo')
-    .replace(/using/gi, 'usando')
-    .replace(/repair/gi, 'reparo')
-    .replace(/install/gi, 'instalar')
-    .replace(/remove/gi, 'remover')
-    .replace(/prepare/gi, 'preparar')
-    .replace(/support/gi, 'apoio')
-    .replace(/assist/gi, 'auxiliar')
-    .replace(/and/gi, 'e')
+function getDisplayDescription(job) {
+  return job?.descriptionPt || job?.description || 'Descrição não informada.'
 }
 
 function parseJobFromCsv(row, index, seasonId) {
@@ -296,6 +243,10 @@ function parseJobFromCsv(row, index, seasonId) {
     'Responsabilidade do cargo',
   ]))
 
+  // Busca as colunas traduzidas na sua planilha do Google Sheets
+  const titlePt = getRowValue(row, ['cargo_pt', 'Cargo_PT', 'title_pt', 'Cargo PT'])
+  const descriptionPt = cleanLongText(getRowValue(row, ['descricao_pt', 'Descricao_PT', 'description_pt', 'Descrição_PT', 'Descrição PT', 'Descricao PT']))
+
   return {
     seasonId,
     id: `${seasonId}-${caseNumber || index}`,
@@ -313,8 +264,14 @@ function parseJobFromCsv(row, index, seasonId) {
     wage: formatWageValue(wageRaw),
     wageRaw,
     available: vacancies,
+    
+    // Título original em inglês preservado para envio correto de e-mail ao empregador
     title: title || 'Vaga sem título',
-    description: translateDescriptionToPt(description || 'Descrição não informada.'),
+    description: description || 'Descrição não informada.',
+
+    // Dados em português para exibição no frontend do candidato
+    titlePt: titlePt || '',
+    descriptionPt: descriptionPt || '',
 
     category: detectCategory(title),
     city: '',
@@ -473,11 +430,30 @@ export default function App() {
           selected_season: normalizeSeasonId(data.selected_season),
         }
 
-        setUser(normalizedData)
-        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalizedData))
-        setSentLogs(normalizedSentLogs)
-        setQueue(normalizedQueue)
-        setSelectedSeason(normalizedData.selected_season || 'winter-2026')
+        // Validação Inteligente: Se houver mudança de temporada, zera logs e dados para o novo banco de dados!
+        const currentSeasonId = 'winter-2026'
+        const userSeason = normalizeSeasonId(normalizedData.selected_season)
+
+        if (userSeason !== currentSeasonId) {
+          setSentLogs([])
+          setQueue([])
+          setSelectedSeason(currentSeasonId)
+
+          const resetUser = { ...normalizedData, sent_logs: [], queue_data: [], selected_season: currentSeasonId }
+          setUser(resetUser)
+          localStorage.setItem(USER_SESSION_KEY, JSON.stringify(resetUser))
+
+          await supabase
+            .from('users')
+            .update({ sent_logs: [], queue_data: [], selected_season: currentSeasonId })
+            .eq('id', userId)
+        } else {
+          setUser(normalizedData)
+          localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalizedData))
+          setSentLogs(normalizedSentLogs)
+          setQueue(normalizedQueue)
+          setSelectedSeason(userSeason)
+        }
 
         setGmailConnected(!!data.gmail_connected)
         setGmailEmail(data.gmail_email || '')
@@ -597,6 +573,7 @@ export default function App() {
     return allJobs.filter(j => j.seasonId === selectedSeason)
   }, [allJobs, selectedSeason])
 
+  // Total da temporada = quantidade física de linhas da planilha
   const totalSeasonJobs = jobs.length
   const currentSeason = seasons.find(s => s.id === selectedSeason)
 
@@ -622,7 +599,7 @@ export default function App() {
 
   const filteredJobs = useMemo(() => {
     return jobs.filter(job => {
-      const text = `${job.title} ${translateJobTitleToPt(job.title)} ${job.employer} ${job.location} ${job.category} ${job.caseNumber}`
+      const text = `${job.title} ${job.titlePt || ''} ${getDisplayTitle(job)} ${job.employer} ${job.location} ${job.category} ${job.caseNumber}`
       const matchSearch = text.toLowerCase().includes(search.toLowerCase())
       const matchCategory = categoryFilter === 'Todas' || job.category === categoryFilter
       const matchState = stateFilter === 'Todos' || job.state === stateFilter
@@ -705,7 +682,7 @@ export default function App() {
               candidatePhone: user?.phone,
               employerName: job?.employer,
               employerEmail: job?.contact,
-              jobTitle: job?.title,
+              jobTitle: job?.title, // O título original em inglês é enviado para que o empregador entenda perfeitamente
               jobLocation: job?.fullLocation,
               caseNumber: job?.caseNumber,
               messageBody: user?.employer_message || user?.employerMessage,
@@ -1858,7 +1835,7 @@ function JobsPage({
 
                     <button type="button" className="job-master-main" onClick={() => setSelectedJobId(job.id)}>
                       <div className="job-master-title-line">
-                        <strong>{translateJobTitleToPt(job.title)}</strong>
+                        <strong>{getDisplayTitle(job)}</strong>
                         <span className="job-master-location">— {job.location}</span>
                       </div>
 
@@ -1890,10 +1867,10 @@ function JobsPage({
             <div className="jobs-detail-scroll">
               {selectedJob ? (
                 <div className="detail-card detail-card-pt">
-                  <h2>{translateJobTitleToPt(selectedJob.title)}</h2>
+                  <h2>{getDisplayTitle(selectedJob)}</h2>
                   <p className="detail-employer">{selectedJob.employer}</p>
 
-                  <InfoLine label="Cargo" value={translateJobTitleToPt(selectedJob.title) || 'Não informado'} />
+                  <InfoLine label="Cargo" value={getDisplayTitle(selectedJob) || 'Não informado'} />
                   <InfoLine label="Case Number" value={selectedJob.caseNumber || 'Não informado'} />
                   <InfoLine label="Empresa" value={selectedJob.employer || 'Não informado'} />
                   <InfoLine label="Agente / Advogado" value={selectedJob.agentAttorneyName || 'Não informado'} />
@@ -1909,7 +1886,7 @@ function JobsPage({
 
                   <div className="description-box">
                     <strong>Descrição oficial</strong>
-                    <p>{selectedJob.description || 'Descrição não informada.'}</p>
+                    <p>{getDisplayDescription(selectedJob)}</p>
                   </div>
 
                   <div className="message-preview">
