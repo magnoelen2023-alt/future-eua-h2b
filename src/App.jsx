@@ -192,12 +192,13 @@ export default function App() {
   const [recoveryStatus, setRecoveryStatus] = useState(null)
   const [syncing, setSyncing] = useState(false)
 
-  // ESTADOS DO GMAIL
-  const [gmailConnected, setGmailConnected] = useState(false)
-  const [gmailEmail, setGmailEmail] = useState('')
-
   const dataLoadedRef = useRef(false)
   const currentUserIdRef = useRef(null)
+
+  // ESTADOS CONEXÃO GMAIL API
+  const [gmailConnected, setGmailConnected] = useState(false)
+  const [gmailEmail, setGmailEmail] = useState('')
+  const [loadingGmail, setLoadingGmail] = useState(false)
 
   const [registerForm, setRegisterForm] = useState({
     name: '', email: '', password: '', phone: '',
@@ -222,20 +223,6 @@ export default function App() {
   const [activationStatus, setActivationStatus] = useState(null)
   const [uploadingFiles, setUploadingFiles] = useState(false)
 
-  // DETECTA RETORNO DO GOOGLE (callback)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const gmailStatus = params.get('gmail')
-    if (gmailStatus === 'sucesso') {
-      alert('✅ Gmail conectado com sucesso! Agora as respostas automáticas dos empregadores vão chegar direto na sua conta.')
-      setGmailConnected(true)
-      window.history.replaceState({}, document.title, window.location.pathname)
-    } else if (gmailStatus === 'erro') {
-      alert('❌ Erro ao conectar o Gmail. Tente novamente.')
-      window.history.replaceState({}, document.title, window.location.pathname)
-    }
-  }, [])
-
   const loadFromSupabase = useCallback(async (userId) => {
     if (!userId) return
     console.log('🔄 Carregando dados do usuário', userId)
@@ -246,42 +233,69 @@ export default function App() {
       if (error) throw error
       if (data) {
         setUser(data)
-        setGmailConnected(!!data.gmail_connected)
-        setGmailEmail(data.gmail_email || '')
         localStorage.setItem(USER_SESSION_KEY, JSON.stringify(data))
         setSentLogs(Array.isArray(data.sent_logs) ? data.sent_logs : [])
         setQueue(Array.isArray(data.queue_data) ? data.queue_data : [])
         setSelectedSeason(data.selected_season || 'winter-2025')
-        setTimeout(() => { dataLoadedRef.current = true }, 500)
+        
+        // Sincroniza estado de conexão do Gmail do banco de dados
+        setGmailConnected(!!data.gmail_connected)
+        setGmailEmail(data.gmail_email || '')
+
+        setTimeout(() => { dataLoadedRef.current = true; console.log('✅ Sincronização liberada'); }, 500)
       }
-    } catch (err) { console.error('❌ Erro ao carregar dados:', err.message) }
-    finally { setSyncing(false) }
+    } catch (err) { console.error('❌ Erro ao carregar dados:', err.message); }
+    finally { setSyncing(false); }
   }, [])
 
   const saveToSupabase = useCallback(async (userId, newSentLogs, newQueue, newSeason) => {
     if (!userId || !dataLoadedRef.current) return
     try {
-      await supabase.from('users').update({ 
-        sent_logs: newSentLogs, 
-        queue_data: newQueue, 
-        selected_season: newSeason 
-      }).eq('id', userId)
-    } catch (err) { console.warn('Erro ao salvar no Supabase:', err.message) }
+      const { error } = await supabase.from('users').update({ sent_logs: newSentLogs, queue_data: newQueue, selected_season: newSeason }).eq('id', userId)
+      if (error) console.warn('Erro ao salvar:', error.message)
+    } catch (err) { console.warn('❌ Erro ao salvar no Supabase:', err.message); }
   }, [])
+
+  // Detecta o retorno do Google OAuth de forma automática
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const status = params.get('status')
+    if (status === 'sucesso') {
+      alert('✅ Gmail conectado com sucesso! Suas candidaturas agora sairão por sua própria conta.')
+      window.history.replaceState({}, document.title, window.location.pathname)
+      if (user?.id) loadFromSupabase(user.id)
+    } else if (status === 'erro') {
+      alert('❌ Erro ao integrar com o Gmail do Google. Tente novamente.')
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [user?.id, loadFromSupabase])
 
   useEffect(() => {
     if (user?.id && user.id !== currentUserIdRef.current) {
       currentUserIdRef.current = user.id
       dataLoadedRef.current = false
       loadFromSupabase(user.id)
+    } else if (!user?.id) {
+      currentUserIdRef.current = null
+      dataLoadedRef.current = false
     }
   }, [user?.id, loadFromSupabase])
 
   useEffect(() => {
     if (!user?.id || !dataLoadedRef.current) return
-    const timer = setTimeout(() => saveToSupabase(user.id, sentLogs, queue, selectedSeason), 2000)
+    const timer = setTimeout(() => { saveToSupabase(user.id, sentLogs, queue, selectedSeason) }, 2000)
     return () => clearTimeout(timer)
   }, [sentLogs, queue, selectedSeason, user?.id, saveToSupabase])
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && user?.id) {
+        loadFromSupabase(user.id)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [user?.id, loadFromSupabase])
 
   useEffect(() => {
     async function loadAllSeasons() {
@@ -294,7 +308,7 @@ export default function App() {
           const csvText = await response.text()
           const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true })
           loadedJobs.push(...parsed.data.filter(r => r['Case number']).map((r, i) => parseJobFromCsv(r, i, season.id)))
-        } catch (e) { console.error(e) }
+        } catch (e) { console.error(e); }
       }
       setAllJobs(loadedJobs)
       setLoadingJobs(false)
@@ -339,46 +353,6 @@ export default function App() {
 
   useEffect(() => { setSelectedIds([]); setSelectedJobId(null); setJobMessage(null) }, [selectedSeason])
 
-  // ===================== FUNÇÕES DO GMAIL =====================
-  const connectGmail = async () => {
-    if (!user?.email) {
-      alert('Faça login primeiro')
-      return
-    }
-    try {
-      const res = await fetch(`${API_URL}/api/gmail/auth-url?email=${encodeURIComponent(user.email)}`)
-      const data = await res.json()
-
-      if (data.ok && data.url) {
-        window.location.href = data.url
-      } else {
-        alert('Erro ao gerar link do Google: ' + (data.error || JSON.stringify(data)))
-      }
-    } catch (err) {
-      console.error(err)
-      alert('Erro de conexão com o servidor')
-    }
-  }
-
-  const disconnectGmail = async () => {
-    if (!user?.email) return
-    if (!window.confirm('Desconectar sua conta do Gmail?')) return
-
-    try {
-      await fetch(`${API_URL}/api/gmail/disconnect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email })
-      })
-      setGmailConnected(false)
-      setGmailEmail('')
-      alert('Gmail desconectado com sucesso.')
-    } catch (err) {
-      alert('Erro ao desconectar')
-    }
-  }
-
-  // ===================== RESTO DAS FUNÇÕES (mantidas iguais) =====================
   useEffect(() => {
     if (!queueRunning || activeSend || finalBlocked || isDemoBlocked) return
     const next = queue.find(i => i.status === 'queued')
@@ -394,7 +368,7 @@ export default function App() {
     if (!item) { setActiveSend(null); return }
     const remaining = Math.max(0, activeSend.dueAt - Date.now())
     const timer = setTimeout(() => {
-      (async () => {
+      ;(async () => {
         const job = allJobs.find(j => j.id === item.jobId)
         const attachments = []
         if (user?.resume1_path) attachments.push({ url: user.resume1_path, filename: 'curriculo.pdf' })
@@ -419,7 +393,9 @@ export default function App() {
             }),
           })
           const data = await response.json().catch(() => ({}))
-          if (!response.ok || !data.ok) throw new Error(data.error || `Erro HTTP ${response.status}`)
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || `Erro HTTP ${response.status}`)
+          }
           const newLog = {
             id: createSentId(), jobId: item.jobId, jobTitle: item.jobTitle,
             employer: item.employer, contact: item.contact,
@@ -512,7 +488,9 @@ export default function App() {
     } catch (error) {
       console.error('Erro ao criar conta:', error)
       let message = 'Erro ao criar conta. Tente novamente.'
-      if (String(error?.message || '').toLowerCase().includes('duplicate')) message = 'Este e-mail já está cadastrado.'
+      if (String(error?.message || '').toLowerCase().includes('duplicate')) {
+        message = 'Este e-mail já está cadastrado. Faça login ou use outro e-mail.'
+      }
       setRegisterStatus({ type: 'error', text: message })
     } finally {
       setUploadingFiles(false)
@@ -596,6 +574,33 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = () => setProfileForm(p => ({ ...p, avatar: reader.result }))
     reader.readAsDataURL(file)
+  }
+
+  // CHAMADA GMAIL API DO GOOGLE
+  const handleConnectGmail = async () => {
+    if (!user?.email) return alert('Sessão expirada. Faça login novamente.')
+    setLoadingGmail(true)
+    
+    // Força uso dinâmico do Render ou do Localhost
+    const activeApiUrl = window.location.hostname.includes('vercel.app')
+      ? 'https://future-eua-h2b-api.onrender.com'
+      : API_URL;
+
+    try {
+      const res = await fetch(`${activeApiUrl}/api/gmail/auth-url?email=${encodeURIComponent(user.email)}`)
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`)
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        alert('Erro ao gerar link do Google: Resposta da API inválida.')
+      }
+    } catch (err) {
+      console.error('Falha na requisição:', err)
+      alert('Erro de conexão: Não foi possível alcançar o servidor de autenticação.')
+    } finally {
+      setLoadingGmail(false)
+    }
   }
 
   async function saveProfile(e) {
@@ -694,17 +699,44 @@ export default function App() {
     setQueueRunning(true)
     setJobMessage({ type: 'success', text: `${newItems.length} candidatura(s) adicionada(s) à fila.` })
   }
-
-  // ===================== RENDERIZAÇÃO =====================
+    // ===================== RENDERIZAÇÃO =====================
   return (
     <div className="app">
-      {syncing && <div style={{ position: 'fixed', bottom: 16, right: 16, background: '#1a3a8f', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, zIndex: 9999 }}>🔄 Sincronizando...</div>}
+      {syncing && (
+        <div style={{ position: 'fixed', bottom: 16, right: 16, background: '#1a3a8f', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, zIndex: 9999 }}>
+          🔄 Sincronizando...
+        </div>
+      )}
 
       {page === 'home' && <Home onRegister={() => setPage('register')} onLogin={() => setPage('login')} />}
 
-      {page === 'login' && <AuthShell><form className="auth-card" onSubmit={handleLogin}><BrandBlock /><h2>Fazer login</h2>{loginError && <div className="alert error">{loginError}</div>}<label>E-mail<input type="email" value={loginForm.email} onChange={e => setLoginForm(p => ({ ...p, email: e.target.value }))} placeholder="seuemail@email.com" /></label><label>Senha<input type="password" value={loginForm.password} onChange={e => setLoginForm(p => ({ ...p, password: e.target.value }))} placeholder="Sua senha" /></label><button className="primary-btn" type="submit">Entrar</button><button className="ghost-btn" type="button" onClick={() => setPage('recover')}>Esqueci minha senha</button><button className="text-btn" type="button" onClick={() => setPage('home')}>Voltar</button></form></AuthShell>}
+      {page === 'login' && (
+        <AuthShell>
+          <form className="auth-card" onSubmit={handleLogin}>
+            <BrandBlock />
+            <h2>Fazer login</h2>
+            {loginError && <div className="alert error">{loginError}</div>}
+            <label>E-mail<input type="email" value={loginForm.email} onChange={e => setLoginForm(p => ({ ...p, email: e.target.value }))} placeholder="seuemail@email.com" /></label>
+            <label>Senha<input type="password" value={loginForm.password} onChange={e => setLoginForm(p => ({ ...p, password: e.target.value }))} placeholder="Sua senha" /></label>
+            <button className="primary-btn" type="submit">Entrar</button>
+            <button className="ghost-btn" type="button" onClick={() => setPage('recover')}>Esqueci minha senha</button>
+            <button className="text-btn" type="button" onClick={() => setPage('home')}>Voltar</button>
+          </form>
+        </AuthShell>
+      )}
 
-      {page === 'recover' && <AuthShell><form className="auth-card" onSubmit={handleRecover}><BrandBlock /><h2>Recuperar senha</h2>{recoveryStatus && <div className={`alert ${recoveryStatus.type}`}>{recoveryStatus.text}</div>}<label>E-mail<input type="email" value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)} placeholder="seuemail@email.com" /></label><button className="primary-btn" type="submit">Enviar</button><button className="text-btn" type="button" onClick={() => setPage('login')}>Voltar</button></form></AuthShell>}
+      {page === 'recover' && (
+        <AuthShell>
+          <form className="auth-card" onSubmit={handleRecover}>
+            <BrandBlock />
+            <h2>Recuperar senha</h2>
+            {recoveryStatus && <div className={`alert ${recoveryStatus.type}`}>{recoveryStatus.text}</div>}
+            <label>E-mail<input type="email" value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)} placeholder="seuemail@email.com" /></label>
+            <button className="primary-btn" type="submit">Enviar</button>
+            <button className="text-btn" type="button" onClick={() => setPage('login')}>Voltar</button>
+          </form>
+        </AuthShell>
+      )}
 
       {page === 'register' && (
         <AuthShell>
@@ -733,7 +765,8 @@ export default function App() {
           activeSend={activeSend} countdown={countdown} onJobs={() => requireLogin('jobs')}
           onProfile={openProfile} onLogout={handleLogout} totalSeasonJobs={totalSeasonJobs}
           loadingJobs={loadingJobs} isPremium={isPremium} totalSentEver={totalSentEver}
-          isDemoBlocked={isDemoBlocked}
+          isDemoBlocked={isDemoBlocked} gmailConnected={gmailConnected} gmailEmail={gmailEmail}
+          handleConnectGmail={handleConnectGmail} loadingGmail={loadingGmail}
         />
       )}
 
@@ -767,31 +800,33 @@ export default function App() {
             <div className="form-section"><h3>Documentos</h3><div className="grid two"><label>Currículo Principal<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('resume', e)} disabled={uploadingFiles} />{profileForm.resumeFileName && <small>✅ {profileForm.resumeFileName}</small>}{user?.resume1_path && <small style={{color: '#666'}}>🔗 <a href={user.resume1_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label><label>Carta de Apresentação<input type="file" accept=".pdf,.doc,.docx" onChange={e => handleProfileFile('coverLetter', e)} disabled={uploadingFiles} />{profileForm.coverLetterFileName && <small>✅ {profileForm.coverLetterFileName}</small>}{user?.cover_letter_path && <small style={{color: '#666'}}>🔗 <a href={user.cover_letter_path} target="_blank" rel="noreferrer">Ver atual</a></small>}</label></div></div>
             <div className="form-section"><h3>Mensagem padrão para empregador</h3><label><textarea rows="6" value={profileForm.employerMessage || ''} onChange={e => setProfileForm(p => ({ ...p, employerMessage: e.target.value }))} /></label></div>
 
-            {/* ==================== INTEGRAÇÃO GMAIL ==================== */}
-            <div className="form-section premium-activation-box" style={{ marginTop: '20px', border: gmailConnected ? '1px solid #16a34a' : '1px solid #3b82f6' }}>
-              <h3 style={{ color: gmailConnected ? '#4ade80' : '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                📧 Integração Gmail {gmailConnected && '✅'}
-              </h3>
-              <p style={{ marginTop: 10, fontSize: 13, opacity: 0.8, padding: '0 5px' }}>
-                {gmailConnected
-                  ? `Sua conta está conectada (${gmailEmail || user?.email}). Respostas automáticas dos empregadores chegam direto no seu Gmail.`
-                  : 'Conecte seu Gmail para que as respostas automáticas dos empregadores (férias, vaga encerrada, etc.) cheguem diretamente na sua caixa de entrada.'}
+            {/* 📧 BLOCO GMAIL INTEGRADO NA EDICÃO DE PERFIL */}
+            <div className="form-section gmail-integration-box" style={{ background: 'rgba(26, 58, 143, 0.1)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(26, 58, 143, 0.3)', marginTop: '20px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>📧 Conexão Gmail</h3>
+              <p style={{ fontSize: '13px', opacity: 0.8, marginBottom: '15px', lineHeight: '1.4' }}>
+                Conecte seu Gmail para enviar candidaturas pelo seu próprio e-mail e receber as respostas automáticas dos empregadores (férias, vaga encerrada) na sua caixa de entrada.
               </p>
-
+              
               {gmailConnected ? (
-                <button type="button" className="ghost-btn" style={{ marginTop: 16, width: '100%', color: '#ef4444' }} onClick={disconnectGmail}>
-                  Desconectar Gmail
-                </button>
+                <div style={{ background: 'rgba(22, 163, 74, 0.1)', border: '1px solid #16a34a', padding: '12px', borderRadius: '8px' }}>
+                  <p style={{ color: '#4ade80', fontSize: '14px', fontWeight: 'bold' }}>✅ Gmail Conectado</p>
+                  <p style={{ fontSize: '12px', opacity: 0.7, marginTop: '4px' }}>Conta: {gmailEmail || user?.email}</p>
+                </div>
               ) : (
-                <button type="button" className="primary-btn" style={{ marginTop: 16, width: '100%', background: '#2563eb' }} onClick={connectGmail}>
-                  🔗 Conectar meu Gmail
+                <button 
+                  type="button" 
+                  className="primary-btn" 
+                  style={{ width: '100%', background: '#fff', color: '#000' }}
+                  onClick={handleConnectGmail}
+                  disabled={loadingGmail}
+                >
+                  {loadingGmail ? '⏳ Carregando...' : '🔗 Conectar meu Gmail'}
                 </button>
               )}
             </div>
-            {/* ==================== FIM INTEGRAÇÃO GMAIL ==================== */}
 
             {!isPremium && (
-              <div className="form-section premium-activation-box" style={{ marginTop: '20px' }}>
+              <div className="form-section premium-activation-box">
                 <h3>🔑 Ativar Chave Premium</h3>
                 {activationStatus && <div className={`alert ${activationStatus.type}`}>{activationStatus.text}</div>}
                 <input className="premium-key-input" value={activationKey} maxLength={19} placeholder="XXXX-XXXX-XXXX-XXXX" onChange={e => setActivationKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/(.{4})/g, '$1-').replace(/-$/, '').slice(0, 19))} />
@@ -810,7 +845,8 @@ export default function App() {
   )
 }
 
-// ===================== COMPONENTES VISUAIS =====================
+// ===================== COMPONENTES VISUAIS (TopBar, Avatar, etc) =====================
+
 function Home({ onRegister, onLogin }) {
   return (
     <main className="home home-premium">
@@ -837,13 +873,53 @@ function Field({ label, value, onChange, type = 'text', error, disabled }) {
   )
 }
 
-function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sentCount, remainingCount, progress, barColor, todaySent, averageDaily, systemStatus, finalBlocked, dailyBlocked, todayQueued, dailyRemaining, queueLength, activeSend, countdown, onJobs, onProfile, onLogout, totalSeasonJobs, loadingJobs, isPremium, totalSentEver, isDemoBlocked }) {
+function Dashboard({ user, currentSeason, selectedSeason, setSelectedSeason, sentCount, remainingCount, progress, barColor, todaySent, averageDaily, systemStatus, finalBlocked, dailyBlocked, todayQueued, dailyRemaining, queueLength, activeSend, countdown, onJobs, onProfile, onLogout, totalSeasonJobs, loadingJobs, isPremium, totalSentEver, isDemoBlocked, gmailConnected, gmailEmail, handleConnectGmail, loadingGmail }) {
   return (
     <main className="dashboard-page">
       <TopBar user={user} onDashboard={() => {}} onJobs={onJobs} onProfile={onProfile} onLogout={onLogout} finalBlocked={finalBlocked} />
       <section className="container">
         <div className="dashboard-hero"><div><span className="pill">Painel principal</span><h2>Dashboard da temporada</h2><p>Acompanhe progresso geral e status do sistema.</p></div><div className="season-box"><label>Temporada</label><select value={selectedSeason} onChange={e => setSelectedSeason(e.target.value)}>{seasons.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div></div>
         <div className="key-card"><div><strong>{isPremium ? '✅ Conta Premium Ativa' : '🔑 Acesso Demonstração'}</strong><p>Chave: <span>{user?.access_key || FREE_ACCESS_KEY}</span></p>{!isPremium && <p style={{ color: '#fbbf24', marginTop: 6 }}>Envios de teste: <strong>{totalSentEver}</strong> / {DEMO_LIMIT}</p>}</div><div className="price-tag">{isPremium ? '🚀 Premium Ativo' : 'R$200/temporada'}</div></div>
+        
+        {/* 📧 BLOCO DO GMAIL NO DASHBOARD */}
+        <section className="panel" style={{ marginTop: '20px', border: '1px solid rgba(26, 58, 143, 0.3)', background: 'rgba(26, 58, 143, 0.05)' }}>
+          <div className="panel-head">
+            <div>
+              <h3>📧 Conexão Gmail</h3>
+              <p>Para receber respostas automáticas dos empregadores</p>
+            </div>
+            <span style={{ 
+              padding: '4px 10px', 
+              borderRadius: '20px', 
+              fontSize: '11px', 
+              fontWeight: 'bold',
+              background: gmailConnected ? 'rgba(22, 163, 74, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+              color: gmailConnected ? '#4ade80' : '#f87171'
+            }}>
+              {gmailConnected ? 'CONECTADO' : 'DESCONECTADO'}
+            </span>
+          </div>
+
+          <div style={{ padding: '15px 0' }}>
+            {gmailConnected ? (
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <p style={{ fontSize: '13px', color: '#ccc' }}>✅ Seu sistema está enviando pelo e-mail:</p>
+                <p style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '5px', color: '#4ade80' }}>{gmailEmail || user?.email}</p>
+              </div>
+            ) : (
+              <button 
+                type="button"
+                className="primary-btn" 
+                style={{ width: '100%', background: '#fff', color: '#000' }}
+                onClick={handleConnectGmail}
+                disabled={loadingGmail}
+              >
+                {loadingGmail ? '⏳ Redirecionando...' : '🔗 Conectar meu Gmail agora'}
+              </button>
+            )}
+          </div>
+        </section>
+
         {loadingJobs && <div className="alert warning">Carregando vagas...</div>}
         {finalBlocked && <div className="alert error">Temporada finalizada.</div>}
         {!isPremium && totalSentEver >= DEMO_LIMIT && (<div className="alert error demo-lock-box"><p>🚀 <strong>Período de teste finalizado</strong></p><p>Você utilizou {totalSentEver}/{DEMO_LIMIT} envios gratuitos.</p><a href={CONTACT_LINK} target="_blank" rel="noreferrer" className="buy-key-btn">Comprar Chave Premium</a></div>)}
