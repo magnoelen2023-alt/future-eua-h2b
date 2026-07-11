@@ -102,8 +102,7 @@ function translateJobTitleToPt(title = '') {
   const t = original.toLowerCase().trim()
 
   // Hotelaria
-  if (t.includes('housekeeper') || t.includes('housekeep') || t.includes('chambermaid')) return 'Camareira / Arrumação de quartos'
-  if (t.includes('room attendant')) return 'Atendente de quartos'
+  if (t.includes('housekeep') || t.includes('room attendant') || t.includes('chambermaid')) return 'Camareira / Arrumação de quartos'
   if (t.includes('front desk') || t.includes('receptionist')) return 'Recepcionista'
   if (t.includes('bellhop') || t.includes('bellman') || t.includes('bell attendant')) return 'Mensageiro de hotel'
   if (t.includes('concierge')) return 'Concierge'
@@ -112,7 +111,7 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('resort')) return 'Funcionário de resort'
 
   // Cozinha
-  if (t.includes('dishwasher') || t.includes('dishwash') || t.includes('dish washer')) return 'Lavador de pratos'
+  if (t.includes('dishwash') || t.includes('dish washer')) return 'Lavador de pratos'
   if (t.includes('cook') || t.includes('line cook') || t.includes('prep cook')) return 'Cozinheiro'
   if (t.includes('chef')) return 'Chef de cozinha'
   if (t.includes('food prep') || t.includes('food preparation')) return 'Auxiliar de preparo de alimentos'
@@ -677,6 +676,7 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              email: user?.email, // <--- CRUCIAL: Identificador do usuário para carregar o refresh token no Render!
               candidateName: user?.name,
               candidateEmail: user?.email,
               candidatePhone: user?.phone,
@@ -1084,6 +1084,37 @@ export default function App() {
     }
   }
 
+  // NOVA FUNÇÃO: Reseta todos os envios e limpa o painel com 1 clique de forma segura!
+  const handleResetHistory = async () => {
+    if (!window.confirm("⚠️ Tem certeza que deseja zerar todas as suas candidaturas enviadas e esvaziar a fila de espera? Essa ação não pode ser desfeita.")) return
+    
+    setSyncing(true)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          sent_logs: [],
+          queue_data: []
+        })
+        .eq('id', user.id)
+
+      if (error) throw error
+
+      setSentLogs([])
+      setQueue([])
+      
+      const updatedUser = { ...user, sent_logs: [], queue_data: [] }
+      setUser(updatedUser)
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser))
+
+      alert("✅ Histórico e fila zerados com sucesso! Agora você pode começar a enviar novamente.")
+    } catch (err) {
+      alert("Erro ao zerar histórico: " + err.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   function handleLogout() {
     setLogged(false)
     setPage('home')
@@ -1315,6 +1346,7 @@ export default function App() {
           onJobs={() => requireLogin('jobs')}
           onProfile={openProfile}
           onLogout={handleLogout}
+          onResetHistory={handleResetHistory} // <--- Passa o controle do reset para o painel principal!
           totalSeasonJobs={totalSeasonJobs}
           loadingJobs={loadingJobs}
           isPremium={isPremium}
@@ -1551,6 +1583,7 @@ function Dashboard({
   onJobs,
   onProfile,
   onLogout,
+  onResetHistory, // <--- Recebe a nova função de limpar dados do dashboard!
   totalSeasonJobs,
   loadingJobs,
   isPremium,
@@ -1673,6 +1706,7 @@ function Dashboard({
           {!finalBlocked && !isDemoBlocked && <button className="primary-btn" onClick={onJobs}>Abrir painel de vagas</button>}
           {isDemoBlocked && <button className="primary-btn" onClick={onJobs}>Ver vagas</button>}
           <button className="ghost-btn" onClick={onProfile}>Editar perfil</button>
+          <button className="ghost-btn" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444' }} onClick={onResetHistory}>Zerar Envios</button> {/* <--- BOTÃO FÍSICO ADICIONADO AQUI */}
           <button className="logout-btn" onClick={onLogout}>Sair</button>
         </div>
       </section>
@@ -1718,10 +1752,6 @@ function JobsPage({
   setFastMode,
   onDashboard,
   onProfile,
-  loadingJobs,
-  isDemoBlocked,
-  totalSentEver,
-  isPremium,
 }) {
   const sendHidden = finalBlocked || dailyBlocked
 
