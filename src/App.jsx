@@ -1398,10 +1398,10 @@ export default function App() {
           setFastMode={setFastMode}
           onDashboard={() => setPage('dashboard')}
           onProfile={openProfile}
-          loadingJobs={loadingJobs}
-          isDemoBlocked={isDemoBlocked}
-          totalSentEver={totalSentEver}
-          isPremium={isPremium}
+          loadingJobs={loadingJobs}        // <--- Repassado aqui para evitar a quebra do escopo
+          isDemoBlocked={isDemoBlocked}    // <--- Repassado aqui para evitar a quebra do escopo
+          totalSentEver={totalSentEver}    // <--- Repassado aqui para evitar a quebra do escopo
+          isPremium={isPremium}            // <--- Repassado aqui para evitar a quebra do escopo
         />
       )}
 
@@ -1752,6 +1752,10 @@ function JobsPage({
   setFastMode,
   onDashboard,
   onProfile,
+  loadingJobs,       // <--- Destruição restaurada corretamente no escopo
+  isDemoBlocked,     // <--- Destruição restaurada corretamente no escopo
+  totalSentEver,     // <--- Destruição restaurada corretamente no escopo
+  isPremium,         // <--- Destruição restaurada corretamente no escopo
 }) {
   const sendHidden = finalBlocked || dailyBlocked
 
