@@ -465,8 +465,15 @@ function parseJobFromCsv(row, index, seasonId) {
   const phone = getRowValue(row, ['Telefone', 'Telefone do empregador', 'phone'])
   const wageRaw = getRowValue(row, ['Wage_Hora', 'wage_per_hour', 'wage'])
   const vacancies = parseVacancies(getRowValue(row, ['Qtd_Vagas', 'Qtd Vagas', 'Vacancies', 'vacancies']))
-  const title = getRowValue(row, ['Cargo', 'Job Title', 'Título do cargo', 'Titulo do cargo', 'title'])
-  const description = cleanLongText(getRowValue(row, [
+
+  // 🇺🇸 Título original em inglês (fallback caso não tenha tradução)
+  const titleEn = getRowValue(row, ['Cargo', 'Job Title', 'Título do cargo', 'Titulo do cargo', 'title'])
+
+  // 🇧🇷 PRIORIDADE 1: Título já traduzido pela sua planilha do Google (cargo_pt)
+  const titlePt = getRowValue(row, ['cargo_pt', 'Cargo_PT', 'cargoPt', 'titulo_pt', 'Titulo_PT'])
+
+  // 🇺🇸 Descrição original em inglês (fallback)
+  const descriptionEn = cleanLongText(getRowValue(row, [
     'Descricao_Vaga',
     'Descrição_Vaga',
     'Description',
@@ -474,6 +481,17 @@ function parseJobFromCsv(row, index, seasonId) {
     'Responsabilidades do cargo',
     'Responsabilidade do cargo',
   ]))
+
+  // 🇧🇷 PRIORIDADE 1: Descrição já traduzida pela sua planilha do Google (descricao_pt)
+  const descriptionPt = cleanLongText(getRowValue(row, ['descricao_pt', 'Descricao_PT', 'descricaoPt', 'descricao_traduzida']))
+
+  // 🎯 LÓGICA FINAL:
+  // - Se veio traduzido da planilha → usa direto (SEM PASSAR pelo tradutor do código)
+  // - Se não veio → usa a função antiga como plano B
+  const finalTitle = titlePt || titleEn || 'Vaga sem título'
+  const finalDescription = descriptionPt
+    ? descriptionPt
+    : translateDescriptionToPt(descriptionEn || 'Descrição não informada.')
 
   return {
     seasonId,
@@ -492,10 +510,11 @@ function parseJobFromCsv(row, index, seasonId) {
     wage: formatWageValue(wageRaw),
     wageRaw,
     available: vacancies,
-    title: title || 'Vaga sem título',
-    description: translateDescriptionToPt(description || 'Descrição não informada.'),
+    title: finalTitle,
+    titleOriginal: titleEn, // guarda o original em inglês para o e-mail
+    description: finalDescription,
 
-    category: detectCategory(title),
+    category: detectCategory(titleEn), // categoria continua sendo detectada pelo título em inglês
     city: '',
     location: state || 'EUA',
     fullLocation: state ? `${state}, USA` : 'Estados Unidos',
@@ -886,7 +905,7 @@ export default function App() {
               candidatePhone: user?.phone,
               employerName: job?.employer,
               employerEmail: job?.contact,
-              jobTitle: job?.title,
+              jobTitle: job?.titleOriginal || job?.title,
               jobLocation: job?.fullLocation,
               caseNumber: job?.caseNumber,
               messageBody: user?.employer_message || user?.employerMessage,
