@@ -63,7 +63,7 @@ function detectCategory(title = '') {
 }
 
 function formatState(state = '') {
-  return state.trim().toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase())
+  return state.trim().toLowerCase().replace(/\b\w/g, l => l.toUpperCase())
 }
 
 function formatDate(value = '') {
@@ -97,6 +97,183 @@ function cleanLongText(value = '') {
     .trim()
 }
 
+function translateJobTitleToPt(title = '') {
+  const original = String(title || '').trim()
+  const t = original.toLowerCase().trim()
+
+  // Hotelaria
+  if (t.includes('housekeeper') || t.includes('housekeep') || t.includes('chambermaid')) return 'Camareira / Arrumação de quartos'
+  if (t.includes('room attendant')) return 'Atendente de quartos'
+  if (t.includes('front desk') || t.includes('receptionist')) return 'Recepcionista'
+  if (t.includes('bellhop') || t.includes('bellman') || t.includes('bell attendant')) return 'Mensageiro de hotel'
+  if (t.includes('concierge')) return 'Concierge'
+  if (t.includes('valet')) return 'Manobrista'
+  if (t.includes('hotel')) return 'Funcionário de hotel'
+  if (t.includes('resort')) return 'Funcionário de resort'
+
+  // Cozinha
+  if (t.includes('dishwasher') || t.includes('dishwash') || t.includes('dish washer')) return 'Lavador de pratos'
+  if (t.includes('cook') || t.includes('line cook') || t.includes('prep cook')) return 'Cozinheiro'
+  if (t.includes('chef')) return 'Chef de cozinha'
+  if (t.includes('food prep') || t.includes('food preparation')) return 'Auxiliar de preparo de alimentos'
+  if (t.includes('kitchen helper')) return 'Ajudante de cozinha'
+  if (t.includes('kitchen staff')) return 'Equipe de cozinha'
+  if (t.includes('kitchen')) return 'Auxiliar de cozinha'
+  if (t.includes('baker')) return 'Padeiro'
+  if (t.includes('butcher')) return 'Açougueiro'
+
+  // Restaurantes
+  if (t.includes('waitress')) return 'Garçonete'
+  if (t.includes('waiter')) return 'Garçom'
+  if (t.includes('server') || t.includes('food server')) return 'Garçom / Atendente'
+  if (t.includes('bartender') || t.includes('bar tender')) return 'Bartender / Barman'
+  if (t.includes('barback') || t.includes('bar back')) return 'Auxiliar de bar'
+  if (t.includes('host') || t.includes('hostess')) return 'Recepcionista de restaurante'
+  if (t.includes('busser') || t.includes('bus boy') || t.includes('bus girl')) return 'Auxiliar de salão'
+  if (t.includes('cashier')) return 'Caixa'
+  if (t.includes('counter') || t.includes('fast food')) return 'Atendente de balcão'
+  if (t.includes('restaurant')) return 'Funcionário de restaurante'
+
+  // Limpeza
+  if (t.includes('clean') || t.includes('cleaner') || t.includes('cleaning')) return 'Auxiliar de limpeza'
+  if (t.includes('janitor')) return 'Zelador'
+  if (t.includes('laundry') || t.includes('linen')) return 'Auxiliar de lavanderia'
+  if (t.includes('maid')) return 'Camareira / Arrumadeira'
+
+  // Paisagismo
+  if (t.includes('landscape') || t.includes('landscap')) return 'Trabalhador de paisagismo'
+  if (t.includes('groundskeep') || t.includes('grounds maintenance')) return 'Manutenção de áreas externas'
+  if (t.includes('lawn') || t.includes('mow')) return 'Cortador de grama'
+  if (t.includes('garden')) return 'Jardineiro'
+  if (t.includes('tree trim') || t.includes('tree cut') || t.includes('tree plant')) return 'Podador / Plantador de árvores'
+  if (t.includes('nursery')) return 'Trabalhador de viveiro'
+  if (t.includes('irrigat')) return 'Instalador de irrigação'
+  if (t.includes('sod')) return 'Instalador de grama'
+  if (t.includes('forestr')) return 'Trabalhador florestal'
+
+  // Construção
+  if (t.includes('roof')) return 'Telhadista'
+  if (t.includes('carpent')) return 'Carpinteiro'
+  if (t.includes('mason') || t.includes('bricklay')) return 'Pedreiro / Assentador de tijolos'
+  if (t.includes('paint')) return 'Pintor'
+  if (t.includes('plumb')) return 'Encanador'
+  if (t.includes('electric') || t.includes('electrical')) return 'Eletricista'
+  if (t.includes('weld')) return 'Soldador'
+  if (t.includes('concrete')) return 'Trabalhador de concreto'
+  if (t.includes('drywall') || t.includes('sheetrock')) return 'Instalador de drywall'
+  if (t.includes('insulat')) return 'Instalador de isolamento'
+  if (t.includes('hvac') || t.includes('heating') || t.includes('air condition')) return 'Técnico de HVAC / Ar condicionado'
+  if (t.includes('scaffold')) return 'Montador de andaimes'
+  if (t.includes('demolit')) return 'Trabalhador de demolição'
+  if (t.includes('construct') || t.includes('construction')) return 'Trabalhador da construção'
+  if (t.includes('laborer') || t.includes('general labor')) return 'Trabalhador geral'
+  if (t.includes('equipment operator')) return 'Operador de equipamentos'
+  if (t.includes('machine operator')) return 'Operador de máquina'
+  if (t.includes('forklift')) return 'Operador de empilhadeira'
+  if (t.includes('heavy equip') || t.includes('excavat') || t.includes('bulldoz') || t.includes('crane')) return 'Operador de máquina pesada'
+
+  // Manutenção
+  if (t.includes('maintenance') || t.includes('maintain')) return 'Auxiliar de manutenção'
+  if (t.includes('mechanic') || t.includes('mechanical')) return 'Mecânico'
+  if (t.includes('pool')) return 'Tratador de piscina'
+  if (t.includes('handyman')) return 'Faz-tudo / Auxiliar de manutenção'
+
+  // Parques
+  if (t.includes('lifeguard')) return 'Salva-vidas'
+  if (t.includes('ride') || t.includes('amusement') || t.includes('recreation')) return 'Operador de brinquedos / Parques'
+  if (t.includes('ticket')) return 'Bilheteiro'
+  if (t.includes('game') || t.includes('arcade')) return 'Atendente de jogos'
+
+  // Agricultura
+  if (t.includes('farm') || t.includes('agricult') || t.includes('harvest') || t.includes('field') || t.includes('crop')) return 'Trabalhador rural'
+  if (t.includes('greenhouse')) return 'Trabalhador de estufa'
+  if (t.includes('tobacco')) return 'Trabalhador de tabaco'
+  if (t.includes('fruit') || t.includes('berry') || t.includes('apple') || t.includes('orange')) return 'Colhedor de frutas'
+
+  // Indústria / logística
+  if (t.includes('packag') || t.includes('packer')) return 'Empacotador'
+  if (t.includes('assembl')) return 'Montador'
+  if (t.includes('warehouse') || t.includes('stock')) return 'Estoquista / Auxiliar de depósito'
+
+  // Transporte
+  if (t.includes('driver') || t.includes('truck')) return 'Motorista'
+  if (t.includes('delivery')) return 'Entregador'
+
+  // Outros comuns
+  if (t.includes('sales') || t.includes('salesperson')) return 'Vendedor'
+  if (t.includes('retail') || t.includes('store clerk')) return 'Atendente de loja'
+  if (t.includes('customer service')) return 'Atendente ao cliente'
+  if (t.includes('oyster') || t.includes('shuck') || t.includes('sheller')) return 'Descascador de ostras / mariscos'
+  if (t.includes('fish') || t.includes('seafood')) return 'Trabalhador de pesca / frutos do mar'
+  if (t.includes('tent') || t.includes('canopy') || t.includes('event setup')) return 'Montador de tendas / eventos'
+  if (t.includes('stage') || t.includes('rigg')) return 'Montador de palco'
+
+  return original
+}
+
+function translateDescriptionToPt(text = '') {
+  let t = String(text || '').trim()
+  if (!t) return 'Descrição não informada.'
+
+  return t
+    .replace(/Assist with/gi, 'Auxiliar em')
+    .replace(/assist with/gi, 'auxiliar em')
+    .replace(/delivery/gi, 'entrega')
+    .replace(/set-up/gi, 'montagem')
+    .replace(/setup/gi, 'montagem')
+    .replace(/set up/gi, 'montagem')
+    .replace(/removal/gi, 'remoção')
+    .replace(/storage/gi, 'armazenamento')
+    .replace(/special events/gi, 'eventos especiais')
+    .replace(/event rental equipment/gi, 'equipamentos de aluguel para eventos')
+    .replace(/loading/gi, 'carregamento')
+    .replace(/unloading/gi, 'descarregamento')
+    .replace(/truck/gi, 'caminhão')
+    .replace(/trucks/gi, 'caminhões')
+    .replace(/warehouse/gi, 'depósito')
+    .replace(/tasks/gi, 'tarefas')
+    .replace(/task/gi, 'tarefa')
+    .replace(/cleaning/gi, 'limpeza')
+    .replace(/rental equipment/gi, 'equipamentos alugados')
+    .replace(/organization/gi, 'organização')
+    .replace(/inventory/gi, 'estoque')
+    .replace(/return/gi, 'retorno')
+    .replace(/requires supervision/gi, 'requer supervisão')
+    .replace(/job classification/gi, 'classificação do trabalho')
+    .replace(/description/gi, 'descrição')
+    .replace(/workers/gi, 'trabalhadores')
+    .replace(/worker/gi, 'trabalhador')
+    .replace(/must be able to/gi, 'deve ser capaz de')
+    .replace(/perform/gi, 'executar')
+    .replace(/duties/gi, 'funções')
+    .replace(/operate/gi, 'operar')
+    .replace(/equipment/gi, 'equipamentos')
+    .replace(/tools/gi, 'ferramentas')
+    .replace(/clean/gi, 'limpar')
+    .replace(/maintain/gi, 'manter')
+    .replace(/grounds/gi, 'áreas externas')
+    .replace(/property/gi, 'propriedade')
+    .replace(/kitchen/gi, 'cozinha')
+    .replace(/food/gi, 'alimentos')
+    .replace(/hotel/gi, 'hotel')
+    .replace(/rooms/gi, 'quartos')
+    .replace(/guests/gi, 'hóspedes')
+    .replace(/landscaping/gi, 'paisagismo')
+    .replace(/construction/gi, 'construção')
+    .replace(/restaurant/gi, 'restaurante')
+    .replace(/safety/gi, 'segurança')
+    .replace(/standards/gi, 'padrões')
+    .replace(/including/gi, 'incluindo')
+    .replace(/using/gi, 'usando')
+    .replace(/repair/gi, 'reparo')
+    .replace(/install/gi, 'instalar')
+    .replace(/remove/gi, 'remover')
+    .replace(/prepare/gi, 'preparar')
+    .replace(/support/gi, 'apoio')
+    .replace(/assist/gi, 'auxiliar')
+    .replace(/and/gi, 'e')
+}
+
 function parseJobFromCsv(row, index, seasonId) {
   const caseNumber = getRowValue(row, ['Case Number', 'Case number', 'case_number'])
   const employer = getRowValue(row, ['Business Name', 'Nome da empresa', 'employer'])
@@ -124,7 +301,6 @@ function parseJobFromCsv(row, index, seasonId) {
     id: `${seasonId}-${caseNumber || index}`,
     number: index + 1,
 
-    // colunas principais
     caseNumber,
     employer: employer || 'Empregador',
     agentAttorneyName,
@@ -138,9 +314,8 @@ function parseJobFromCsv(row, index, seasonId) {
     wageRaw,
     available: vacancies,
     title: title || 'Vaga sem título',
-    description: description || 'Descrição não informada.',
+    description: translateDescriptionToPt(description || 'Descrição não informada.'),
 
-    // campos usados pelo sistema
     category: detectCategory(title),
     city: '',
     location: state || 'EUA',
@@ -196,66 +371,6 @@ function getInitials(name = '') {
 
 function progressColor(p) {
   return p < 35 ? 'green' : p < 75 ? 'yellow' : 'red'
-}
-
-function translateJobTitleToPt(title = '') {
-  const t = title.toLowerCase().trim()
-  if (t.includes('dishwash')) return 'Lavador de pratos'
-  if (t.includes('server')) return 'Garçom / Atendente'
-  if (t.includes('waiter')) return 'Garçom'
-  if (t.includes('waitress')) return 'Garçonete'
-  if (t.includes('cook')) return 'Cozinheiro'
-  if (t.includes('chef')) return 'Chef de cozinha'
-  if (t.includes('housekeep')) return 'Camareira / Arrumação'
-  if (t.includes('room attendant')) return 'Atendente de quartos'
-  if (t.includes('clean')) return 'Auxiliar de limpeza'
-  if (t.includes('janitor')) return 'Zelador'
-  if (t.includes('landscape')) return 'Trabalhador de paisagismo'
-  if (t.includes('groundskeep')) return 'Manutenção de áreas externas'
-  if (t.includes('roof')) return 'Telhadista'
-  if (t.includes('construction')) return 'Trabalhador da construção'
-  if (t.includes('laborer')) return 'Trabalhador geral'
-  if (t.includes('maintenance')) return 'Auxiliar de manutenção'
-  if (t.includes('laundry')) return 'Auxiliar de lavanderia'
-  if (t.includes('cashier')) return 'Caixa'
-  if (t.includes('bartender')) return 'Bartender'
-  if (t.includes('painter')) return 'Pintor'
-  if (t.includes('carpenter')) return 'Carpinteiro'
-  if (t.includes('farm')) return 'Trabalhador rural'
-  return title
-}
-
-function getPortugueseResponsibilities(job) {
-  const title = (job?.title || '').toLowerCase()
-  const category = (job?.category || '').toLowerCase()
-
-  if (title.includes('dishwash')) {
-    return 'realizar a lavagem de pratos, copos, panelas, utensílios e equipamentos de cozinha, mantendo a área limpa, organizada e pronta para operação.'
-  }
-
-  if (title.includes('server') || title.includes('waiter')) {
-    return 'atender clientes, anotar pedidos, servir alimentos e bebidas, organizar mesas e apoiar o funcionamento do salão.'
-  }
-
-  if (title.includes('cook') || title.includes('chef')) {
-    return 'preparar alimentos, organizar ingredientes, manter os padrões de higiene da cozinha e apoiar a produção.'
-  }
-
-  if (title.includes('housekeep') || category.includes('hotelaria')) {
-    return 'executar limpeza, arrumação e organização de quartos e áreas internas, seguindo os padrões de higiene.'
-  }
-
-  if (title.includes('landscape')) {
-    return 'executar atividades de paisagismo e manutenção de áreas externas.'
-  }
-
-  return 'executar as atividades principais da função conforme orientação do empregador, respeitando padrões de qualidade e segurança.'
-}
-
-function buildPortugueseJobDescription(job) {
-  if (!job) return 'Selecione uma vaga para ver os detalhes.'
-
-  return `A vaga de ${translateJobTitleToPt(job.title)} está localizada em ${job.fullLocation}. Há ${job.available || 0} vaga(s) disponíveis para esta posição. Profissional responsável por ${getPortugueseResponsibilities(job)} O salário informado é: ${job.wageDetail}. Período: ${job.startDate || 'não informado'} a ${job.endDate || 'não informado'}. Visto: ${job.visaType}.${job.agentAttorneyName ? ` Agente/advogado responsável: ${job.agentAttorneyName}.` : ''}${job.randomizationGroup ? ` Grupo de randomização: ${job.randomizationGroup}.` : ''}`
 }
 
 function getLicenseKey(user = {}) {
@@ -482,11 +597,7 @@ export default function App() {
     return allJobs.filter(j => j.seasonId === selectedSeason)
   }, [allJobs, selectedSeason])
 
-  // IMPORTANTE:
-  // Total da temporada = quantidade de linhas/registros da planilha.
-  // Não é soma da coluna Qtd_Vagas.
   const totalSeasonJobs = jobs.length
-
   const currentSeason = seasons.find(s => s.id === selectedSeason)
 
   const isPremium =
@@ -1782,7 +1893,7 @@ function JobsPage({
                   <h2>{translateJobTitleToPt(selectedJob.title)}</h2>
                   <p className="detail-employer">{selectedJob.employer}</p>
 
-                  <InfoLine label="Cargo" value={selectedJob.title || 'Não informado'} />
+                  <InfoLine label="Cargo" value={translateJobTitleToPt(selectedJob.title) || 'Não informado'} />
                   <InfoLine label="Case Number" value={selectedJob.caseNumber || 'Não informado'} />
                   <InfoLine label="Empresa" value={selectedJob.employer || 'Não informado'} />
                   <InfoLine label="Agente / Advogado" value={selectedJob.agentAttorneyName || 'Não informado'} />
@@ -1797,12 +1908,7 @@ function JobsPage({
                   <InfoLine label="Tipo do visto" value={selectedJob.visaType || 'H-2B'} />
 
                   <div className="description-box">
-                    <strong>Resumo em português</strong>
-                    <p>{buildPortugueseJobDescription(selectedJob)}</p>
-                  </div>
-
-                  <div className="description-box">
-                    <strong>Descrição oficial da planilha</strong>
+                    <strong>Descrição oficial</strong>
                     <p>{selectedJob.description || 'Descrição não informada.'}</p>
                   </div>
 
