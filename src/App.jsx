@@ -688,6 +688,7 @@ export default function App() {
               messageBody: user?.employer_message || user?.employerMessage,
               attachments,
               licenseKey,
+              gmailConnected, // <--- Crucial: Informa ao backend para usar a Gmail API via OAuth conectada!
             }),
           })
 
@@ -735,7 +736,7 @@ export default function App() {
     }, remaining)
 
     return () => clearTimeout(timer)
-  }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason, sentLogs])
+  }, [activeSend, queue, allJobs, user, saveToSupabase, selectedSeason, sentLogs, gmailConnected])
 
   useEffect(() => {
     if (!activeSend) {
@@ -1948,6 +1949,7 @@ function StatCard({ title, value }) {
   )
 }
 
+// InfoLine corrigido de forma segura
 function InfoLine({ label, value }) {
   return (
     <div className="info-line">
