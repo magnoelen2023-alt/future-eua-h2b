@@ -109,12 +109,17 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('bellhop') || t.includes('bellman') || t.includes('bell attendant')) return 'Mensageiro de hotel'
   if (t.includes('concierge')) return 'Concierge'
   if (t.includes('valet')) return 'Manobrista'
+  if (t.includes('spa attendant') || t.includes('spa')) return 'Atendente de spa'
+  if (t.includes('cabana')) return 'Atendente de cabana'
   if (t.includes('hotel')) return 'Funcionário de hotel'
   if (t.includes('resort')) return 'Funcionário de resort'
 
   // Cozinha
   if (t.includes('dishwasher') || t.includes('dishwash') || t.includes('dish washer')) return 'Lavador de pratos'
-  if (t.includes('cook') || t.includes('line cook') || t.includes('prep cook')) return 'Cozinheiro'
+  if (t.includes('line cook')) return 'Cozinheiro de linha'
+  if (t.includes('prep cook')) return 'Auxiliar de cozinha (prep)'
+  if (t.includes('cook')) return 'Cozinheiro'
+  if (t.includes('sous chef')) return 'Subchef de cozinha'
   if (t.includes('chef')) return 'Chef de cozinha'
   if (t.includes('food prep') || t.includes('food preparation')) return 'Auxiliar de preparo de alimentos'
   if (t.includes('kitchen helper')) return 'Ajudante de cozinha'
@@ -122,6 +127,9 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('kitchen')) return 'Auxiliar de cozinha'
   if (t.includes('baker')) return 'Padeiro'
   if (t.includes('butcher')) return 'Açougueiro'
+  if (t.includes('meat trimmer') || t.includes('meat cutter')) return 'Cortador de carne'
+  if (t.includes('poultry')) return 'Trabalhador de aves / frango'
+  if (t.includes('pastry')) return 'Confeiteiro'
 
   // Restaurantes
   if (t.includes('waitress')) return 'Garçonete'
@@ -136,17 +144,18 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('restaurant')) return 'Funcionário de restaurante'
 
   // Limpeza
-  if (t.includes('clean') || t.includes('cleaner') || t.includes('cleaning')) return 'Auxiliar de limpeza'
+  if (t.includes('cleaner') || t.includes('cleaning') || t.includes('clean')) return 'Auxiliar de limpeza'
   if (t.includes('janitor')) return 'Zelador'
   if (t.includes('laundry') || t.includes('linen')) return 'Auxiliar de lavanderia'
   if (t.includes('maid')) return 'Camareira / Arrumadeira'
+  if (t.includes('porter')) return 'Carregador / Auxiliar'
 
   // Paisagismo
   if (t.includes('landscape') || t.includes('landscap')) return 'Trabalhador de paisagismo'
-  if (t.includes('groundskeep') || t.includes('grounds maintenance')) return 'Manutenção de áreas externas'
+  if (t.includes('groundskeep') || t.includes('grounds maintenance') || t.includes('grounds keeper')) return 'Manutenção de áreas externas'
   if (t.includes('lawn') || t.includes('mow')) return 'Cortador de grama'
   if (t.includes('garden')) return 'Jardineiro'
-  if (t.includes('tree trim') || t.includes('tree cut') || t.includes('tree plant')) return 'Podador / Plantador de árvores'
+  if (t.includes('tree trim') || t.includes('tree cut') || t.includes('tree plant') || t.includes('arborist')) return 'Podador / Plantador de árvores'
   if (t.includes('nursery')) return 'Trabalhador de viveiro'
   if (t.includes('irrigat')) return 'Instalador de irrigação'
   if (t.includes('sod')) return 'Instalador de grama'
@@ -172,6 +181,7 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('machine operator')) return 'Operador de máquina'
   if (t.includes('forklift')) return 'Operador de empilhadeira'
   if (t.includes('heavy equip') || t.includes('excavat') || t.includes('bulldoz') || t.includes('crane')) return 'Operador de máquina pesada'
+  if (t.includes('flagger') || t.includes('flag person')) return 'Sinalizador de trânsito'
 
   // Manutenção
   if (t.includes('maintenance') || t.includes('maintain')) return 'Auxiliar de manutenção'
@@ -179,22 +189,28 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('pool')) return 'Tratador de piscina'
   if (t.includes('handyman')) return 'Faz-tudo / Auxiliar de manutenção'
 
-  // Parques
+  // Parques e Recreação
   if (t.includes('lifeguard')) return 'Salva-vidas'
-  if (t.includes('ride') || t.includes('amusement') || t.includes('recreation')) return 'Operador de brinquedos / Parques'
+  if (t.includes('ride operator') || t.includes('amusement') || t.includes('recreation')) return 'Operador de brinquedos / Parques'
   if (t.includes('ticket')) return 'Bilheteiro'
   if (t.includes('game') || t.includes('arcade')) return 'Atendente de jogos'
+  if (t.includes('gaming')) return 'Atendente de jogos'
+  if (t.includes('carnival')) return 'Trabalhador de parque de diversões'
+  if (t.includes('beach')) return 'Atendente de praia'
 
   // Agricultura
   if (t.includes('farm') || t.includes('agricult') || t.includes('harvest') || t.includes('field') || t.includes('crop')) return 'Trabalhador rural'
   if (t.includes('greenhouse')) return 'Trabalhador de estufa'
   if (t.includes('tobacco')) return 'Trabalhador de tabaco'
-  if (t.includes('fruit') || t.includes('berry') || t.includes('apple') || t.includes('orange')) return 'Colhedor de frutas'
+  if (t.includes('fruit') || t.includes('berry') || t.includes('apple') || t.includes('orange') || t.includes('picker')) return 'Colhedor de frutas'
+  if (t.includes('livestock') || t.includes('cattle') || t.includes('ranch')) return 'Trabalhador de pecuária'
 
   // Indústria / logística
   if (t.includes('packag') || t.includes('packer')) return 'Empacotador'
   if (t.includes('assembl')) return 'Montador'
   if (t.includes('warehouse') || t.includes('stock')) return 'Estoquista / Auxiliar de depósito'
+  if (t.includes('production')) return 'Trabalhador de produção'
+  if (t.includes('sorter') || t.includes('sorting')) return 'Selecionador'
 
   // Transporte
   if (t.includes('driver') || t.includes('truck')) return 'Motorista'
@@ -205,9 +221,12 @@ function translateJobTitleToPt(title = '') {
   if (t.includes('retail') || t.includes('store clerk')) return 'Atendente de loja'
   if (t.includes('customer service')) return 'Atendente ao cliente'
   if (t.includes('oyster') || t.includes('shuck') || t.includes('sheller')) return 'Descascador de ostras / mariscos'
-  if (t.includes('fish') || t.includes('seafood')) return 'Trabalhador de pesca / frutos do mar'
+  if (t.includes('fish') || t.includes('seafood') || t.includes('crab')) return 'Trabalhador de pesca / frutos do mar'
   if (t.includes('tent') || t.includes('canopy') || t.includes('event setup')) return 'Montador de tendas / eventos'
   if (t.includes('stage') || t.includes('rigg')) return 'Montador de palco'
+  if (t.includes('security guard') || t.includes('guard')) return 'Segurança'
+  if (t.includes('animal') || t.includes('groomer')) return 'Cuidador de animais'
+  if (t.includes('seasonal worker') || t.includes('seasonal helper')) return 'Trabalhador sazonal'
 
   return original
 }
@@ -216,63 +235,222 @@ function translateDescriptionToPt(text = '') {
   let t = String(text || '').trim()
   if (!t) return 'Descrição não informada.'
 
+  // IMPORTANTE: A ORDEM IMPORTA. Frases longas primeiro, palavras curtas por último.
+  const replacements = [
+    // === FRASES COMPLETAS PRIMEIRO ===
+    [/must be able to lift/gi, 'deve ser capaz de levantar'],
+    [/must be able to/gi, 'deve ser capaz de'],
+    [/ability to lift/gi, 'capacidade de levantar'],
+    [/on a daily basis/gi, 'diariamente'],
+    [/according to/gi, 'de acordo com'],
+    [/as needed/gi, 'conforme necessário'],
+    [/as required/gi, 'conforme exigido'],
+    [/as directed/gi, 'conforme orientado'],
+    [/as assigned/gi, 'conforme atribuído'],
+    [/other duties as assigned/gi, 'outras funções conforme atribuídas'],
+    [/perform other duties/gi, 'executar outras funções'],
+    [/perform all duties/gi, 'executar todas as funções'],
+    [/perform duties/gi, 'executar funções'],
+    [/job classification/gi, 'classificação do trabalho'],
+    [/job duties/gi, 'funções do trabalho'],
+    [/job description/gi, 'descrição do trabalho'],
+    [/requires supervision/gi, 'requer supervisão'],
+    [/under supervision/gi, 'sob supervisão'],
+    [/heavy lifting/gi, 'levantamento de peso'],
+    [/physical labor/gi, 'trabalho físico'],
+    [/physical work/gi, 'trabalho físico'],
+    [/outdoor work/gi, 'trabalho ao ar livre'],
+    [/indoor work/gi, 'trabalho em ambiente interno'],
+    [/full-time/gi, 'tempo integral'],
+    [/full time/gi, 'tempo integral'],
+    [/part-time/gi, 'meio período'],
+    [/part time/gi, 'meio período'],
+    [/work schedule/gi, 'horário de trabalho'],
+    [/work environment/gi, 'ambiente de trabalho'],
+    [/working conditions/gi, 'condições de trabalho'],
+    [/special events/gi, 'eventos especiais'],
+    [/event rental equipment/gi, 'equipamentos de aluguel para eventos'],
+    [/rental equipment/gi, 'equipamentos alugados'],
+    [/loading and unloading/gi, 'carregamento e descarregamento'],
+    [/customer service/gi, 'atendimento ao cliente'],
+    [/customer satisfaction/gi, 'satisfação do cliente'],
+    [/food preparation/gi, 'preparo de alimentos'],
+    [/food service/gi, 'serviço de alimentos'],
+    [/prepare food/gi, 'preparar alimentos'],
+    [/serve food/gi, 'servir alimentos'],
+    [/take orders/gi, 'anotar pedidos'],
+    [/serve customers/gi, 'atender clientes'],
+    [/wash dishes/gi, 'lavar pratos'],
+    [/wash pots/gi, 'lavar panelas'],
+    [/kitchen equipment/gi, 'equipamentos de cozinha'],
+    [/kitchen utensils/gi, 'utensílios de cozinha'],
+    [/hotel rooms/gi, 'quartos de hotel'],
+    [/guest rooms/gi, 'quartos de hóspedes'],
+    [/make beds/gi, 'arrumar camas'],
+    [/change linens/gi, 'trocar roupas de cama'],
+    [/change sheets/gi, 'trocar lençóis'],
+    [/vacuum floors/gi, 'aspirar pisos'],
+    [/vacuum carpets/gi, 'aspirar carpetes'],
+    [/dust furniture/gi, 'tirar pó dos móveis'],
+    [/clean bathrooms/gi, 'limpar banheiros'],
+    [/restock supplies/gi, 'repor suprimentos'],
+    [/replace towels/gi, 'substituir toalhas'],
+    [/heavy equipment/gi, 'equipamentos pesados'],
+    [/power tools/gi, 'ferramentas elétricas'],
+    [/hand tools/gi, 'ferramentas manuais'],
+    [/mow lawns/gi, 'cortar grama'],
+    [/plant trees/gi, 'plantar árvores'],
+    [/trim trees/gi, 'podar árvores'],
+    [/trim bushes/gi, 'podar arbustos'],
+    [/remove debris/gi, 'remover entulho'],
+    [/dig holes/gi, 'cavar buracos'],
+    [/apply fertilizer/gi, 'aplicar fertilizante'],
+    [/apply pesticides/gi, 'aplicar pesticidas'],
+    [/spray chemicals/gi, 'aplicar produtos químicos'],
+    [/lay sod/gi, 'instalar grama'],
+    [/assist with/gi, 'auxiliar em'],
+    [/set-up/gi, 'montagem'],
+    [/set up/gi, 'montagem'],
+
+    // === PALAVRAS INDIVIDUAIS (com \b para não pegar dentro de outras palavras) ===
+    [/\bassist\b/gi, 'auxiliar'],
+    [/\bassisting\b/gi, 'auxiliando'],
+    [/\bdelivery\b/gi, 'entrega'],
+    [/\bdeliveries\b/gi, 'entregas'],
+    [/\bsetup\b/gi, 'montagem'],
+    [/\bremoval\b/gi, 'remoção'],
+    [/\bstorage\b/gi, 'armazenamento'],
+    [/\bloading\b/gi, 'carregamento'],
+    [/\bunloading\b/gi, 'descarregamento'],
+    [/\btruck\b/gi, 'caminhão'],
+    [/\btrucks\b/gi, 'caminhões'],
+    [/\bwarehouse\b/gi, 'depósito'],
+    [/\btask\b/gi, 'tarefa'],
+    [/\btasks\b/gi, 'tarefas'],
+    [/\bcleaning\b/gi, 'limpeza'],
+    [/\borganization\b/gi, 'organização'],
+    [/\borganize\b/gi, 'organizar'],
+    [/\bin​ventory\b/gi, 'estoque'],
+    [/\binventory\b/gi, 'estoque'],
+    [/\bdescription\b/gi, 'descrição'],
+    [/\bworkers\b/gi, 'trabalhadores'],
+    [/\bworker\b/gi, 'trabalhador'],
+    [/\bworking\b/gi, 'trabalhando'],
+    [/\bperform\b/gi, 'executar'],
+    [/\bperforming\b/gi, 'executando'],
+    [/\bduties\b/gi, 'funções'],
+    [/\bduty\b/gi, 'função'],
+    [/\boperate\b/gi, 'operar'],
+    [/\boperating\b/gi, 'operando'],
+    [/\boperation\b/gi, 'operação'],
+    [/\bequipment\b/gi, 'equipamentos'],
+    [/\btools\b/gi, 'ferramentas'],
+    [/\btool\b/gi, 'ferramenta'],
+    [/\bclean\b/gi, 'limpar'],
+    [/\bmaintain\b/gi, 'manter'],
+    [/\bmaintenance\b/gi, 'manutenção'],
+    [/\bgrounds\b/gi, 'áreas externas'],
+    [/\bproperty\b/gi, 'propriedade'],
+    [/\bkitchen\b/gi, 'cozinha'],
+    [/\bfood\b/gi, 'alimentos'],
+    [/\bhotel\b/gi, 'hotel'],
+    [/\brooms\b/gi, 'quartos'],
+    [/\broom\b/gi, 'quarto'],
+    [/\bguests\b/gi, 'hóspedes'],
+    [/\bguest\b/gi, 'hóspede'],
+    [/\blandscaping\b/gi, 'paisagismo'],
+    [/\bconstruction\b/gi, 'construção'],
+    [/\brestaurant\b/gi, 'restaurante'],
+    [/\bsafety\b/gi, 'segurança'],
+    [/\bstandards\b/gi, 'padrões'],
+    [/\bincluding\b/gi, 'incluindo'],
+    [/\busing\b/gi, 'usando'],
+    [/\brepair\b/gi, 'reparo'],
+    [/\brepairs\b/gi, 'reparos'],
+    [/\binstall\b/gi, 'instalar'],
+    [/\binstalling\b/gi, 'instalando'],
+    [/\binstallation\b/gi, 'instalação'],
+    [/\bremove\b/gi, 'remover'],
+    [/\bremoving\b/gi, 'removendo'],
+    [/\bprepare\b/gi, 'preparar'],
+    [/\bpreparing\b/gi, 'preparando'],
+    [/\bpreparation\b/gi, 'preparação'],
+    [/\bsupport\b/gi, 'apoio'],
+    [/\blift\b/gi, 'levantar'],
+    [/\blifting\b/gi, 'levantando'],
+    [/\bcarry\b/gi, 'carregar'],
+    [/\bcarrying\b/gi, 'carregando'],
+    [/\bmove\b/gi, 'mover'],
+    [/\bmoving\b/gi, 'movendo'],
+    [/\bpush\b/gi, 'empurrar'],
+    [/\bpull\b/gi, 'puxar'],
+    [/\bwash\b/gi, 'lavar'],
+    [/\bwashing\b/gi, 'lavando'],
+    [/\bstock\b/gi, 'abastecer'],
+    [/\bfollow\b/gi, 'seguir'],
+    [/\bfollowing\b/gi, 'seguindo'],
+    [/\bassemble\b/gi, 'montar'],
+    [/\bcheck\b/gi, 'verificar'],
+    [/\bchecking\b/gi, 'verificando'],
+    [/\binspect\b/gi, 'inspecionar'],
+    [/\bmonitor\b/gi, 'monitorar'],
+    [/\breport\b/gi, 'reportar'],
+    [/\brequire\b/gi, 'exigir'],
+    [/\brequires\b/gi, 'exige'],
+    [/\brequired\b/gi, 'exigido'],
+    [/\bprovide\b/gi, 'fornecer'],
+    [/\bproviding\b/gi, 'fornecendo'],
+    [/\bensure\b/gi, 'garantir'],
+    [/\bensuring\b/gi, 'garantindo'],
+    [/\bemployee\b/gi, 'funcionário'],
+    [/\bemployees\b/gi, 'funcionários'],
+    [/\bemployer\b/gi, 'empregador'],
+    [/\bmanager\b/gi, 'gerente'],
+    [/\bsupervisor\b/gi, 'supervisor'],
+    [/\bcustomer\b/gi, 'cliente'],
+    [/\bcustomers\b/gi, 'clientes'],
+    [/\barea\b/gi, 'área'],
+    [/\bareas\b/gi, 'áreas'],
+    [/\bfacility\b/gi, 'instalação'],
+    [/\bfacilities\b/gi, 'instalações'],
+    [/\bbuilding\b/gi, 'edifício'],
+    [/\bfloor\b/gi, 'piso'],
+    [/\bfloors\b/gi, 'pisos'],
+    [/\bwindow\b/gi, 'janela'],
+    [/\bwindows\b/gi, 'janelas'],
+    [/\bmaterial\b/gi, 'material'],
+    [/\bmaterials\b/gi, 'materiais'],
+    [/\bproduct\b/gi, 'produto'],
+    [/\bproducts\b/gi, 'produtos'],
+    [/\bshift\b/gi, 'turno'],
+    [/\bshifts\b/gi, 'turnos'],
+    [/\bhours\b/gi, 'horas'],
+    [/\bheavy\b/gi, 'pesado'],
+    [/\bproper\b/gi, 'apropriado'],
+    [/\bproperly\b/gi, 'apropriadamente'],
+    [/\bregular\b/gi, 'regular'],
+    [/\bregularly\b/gi, 'regularmente'],
+    [/\bdaily\b/gi, 'diariamente'],
+    [/\bweekly\b/gi, 'semanalmente'],
+    [/\bseasonal\b/gi, 'sazonal'],
+    [/\btemporary\b/gi, 'temporário'],
+
+    // === CONJUNÇÕES E PREPOSIÇÕES POR ÚLTIMO (com \b OBRIGATÓRIO) ===
+    // ⚠️ ATENÇÃO: sem \b, "and" pegava dentro de "handle", "landscape" etc. — bug corrigido!
+    [/\band\b/gi, 'e'],
+    [/\bor\b/gi, 'ou'],
+    [/\bwith\b/gi, 'com'],
+    [/\bwithout\b/gi, 'sem'],
+    [/\bother\b/gi, 'outro'],
+    [/\ball\b/gi, 'todos'],
+    [/\bany\b/gi, 'qualquer'],
+  ]
+
+  replacements.forEach(([pattern, replacement]) => {
+    t = t.replace(pattern, replacement)
+  })
+
   return t
-    .replace(/Assist with/gi, 'Auxiliar em')
-    .replace(/assist with/gi, 'auxiliar em')
-    .replace(/delivery/gi, 'entrega')
-    .replace(/set-up/gi, 'montagem')
-    .replace(/setup/gi, 'montagem')
-    .replace(/set up/gi, 'montagem')
-    .replace(/removal/gi, 'remoção')
-    .replace(/storage/gi, 'armazenamento')
-    .replace(/special events/gi, 'eventos especiais')
-    .replace(/event rental equipment/gi, 'equipamentos de aluguel para eventos')
-    .replace(/loading/gi, 'carregamento')
-    .replace(/unloading/gi, 'descarregamento')
-    .replace(/truck/gi, 'caminhão')
-    .replace(/trucks/gi, 'caminhões')
-    .replace(/warehouse/gi, 'depósito')
-    .replace(/tasks/gi, 'tarefas')
-    .replace(/task/gi, 'tarefa')
-    .replace(/cleaning/gi, 'limpeza')
-    .replace(/rental equipment/gi, 'equipamentos alugados')
-    .replace(/organization/gi, 'organização')
-    .replace(/inventory/gi, 'estoque')
-    .replace(/return/gi, 'retorno')
-    .replace(/requires supervision/gi, 'requer supervisão')
-    .replace(/job classification/gi, 'classificação do trabalho')
-    .replace(/description/gi, 'descrição')
-    .replace(/workers/gi, 'trabalhadores')
-    .replace(/worker/gi, 'trabalhador')
-    .replace(/must be able to/gi, 'deve ser capaz de')
-    .replace(/perform/gi, 'executar')
-    .replace(/duties/gi, 'funções')
-    .replace(/operate/gi, 'operar')
-    .replace(/equipment/gi, 'equipamentos')
-    .replace(/tools/gi, 'ferramentas')
-    .replace(/clean/gi, 'limpar')
-    .replace(/maintain/gi, 'manter')
-    .replace(/grounds/gi, 'áreas externas')
-    .replace(/property/gi, 'propriedade')
-    .replace(/kitchen/gi, 'cozinha')
-    .replace(/food/gi, 'alimentos')
-    .replace(/hotel/gi, 'hotel')
-    .replace(/rooms/gi, 'quartos')
-    .replace(/guests/gi, 'hóspedes')
-    .replace(/landscaping/gi, 'paisagismo')
-    .replace(/construction/gi, 'construção')
-    .replace(/restaurant/gi, 'restaurante')
-    .replace(/safety/gi, 'segurança')
-    .replace(/standards/gi, 'padrões')
-    .replace(/including/gi, 'incluindo')
-    .replace(/using/gi, 'usando')
-    .replace(/repair/gi, 'reparo')
-    .replace(/install/gi, 'instalar')
-    .replace(/remove/gi, 'remover')
-    .replace(/prepare/gi, 'preparar')
-    .replace(/support/gi, 'apoio')
-    .replace(/assist/gi, 'auxiliar')
-    .replace(/and/gi, 'e')
 }
 
 function parseJobFromCsv(row, index, seasonId) {
