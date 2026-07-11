@@ -10,7 +10,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 const USER_SESSION_KEY = 'h2b-user-session'
 
 const seasons = [
-  { id: 'winter-2025', label: '❄ Inverno 2026', short: 'Inverno', csvFile: '/vagas_inverno_2026_h2b.csv' },
+  { id: 'winter-2026', label: '❄ Inverno 2026', short: 'Inverno', csvFile: '/vagas_inverno_2025_h2b.csv' },
   { id: 'summer-2026', label: '☀ Verão 2026', short: 'Verão', csvFile: null },
 ]
 
