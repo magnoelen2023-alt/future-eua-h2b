@@ -330,7 +330,6 @@ function translateDescriptionToPt(text = '') {
     [/\bcleaning\b/gi, 'limpeza'],
     [/\borganization\b/gi, 'organização'],
     [/\borganize\b/gi, 'organizar'],
-    [/\bin​ventory\b/gi, 'estoque'],
     [/\binventory\b/gi, 'estoque'],
     [/\bdescription\b/gi, 'descrição'],
     [/\bworkers\b/gi, 'trabalhadores'],
@@ -436,7 +435,6 @@ function translateDescriptionToPt(text = '') {
     [/\btemporary\b/gi, 'temporário'],
 
     // === CONJUNÇÕES E PREPOSIÇÕES POR ÚLTIMO (com \b OBRIGATÓRIO) ===
-    // ⚠️ ATENÇÃO: sem \b, "and" pegava dentro de "handle", "landscape" etc. — bug corrigido!
     [/\band\b/gi, 'e'],
     [/\bor\b/gi, 'ou'],
     [/\bwith\b/gi, 'com'],
@@ -767,7 +765,19 @@ export default function App() {
 
         try {
           const response = await fetch(season.csvFile)
-          const csvText = await response.text()
+
+          // --- CORREÇÃO DE ACENTUAÇÃO (ENCODING) ---
+          // Lê os bytes brutos do arquivo
+          const arrayBuffer = await response.arrayBuffer()
+          // Tenta ler como UTF-8 primeiro (padrão moderno)
+          let decoder = new TextDecoder('utf-8')
+          let csvText = decoder.decode(arrayBuffer)
+          // Se aparecer o caractere de erro (), reprocessa como ISO-8859-1 (Windows/Excel)
+          if (csvText.includes('\uFFFD')) {
+            decoder = new TextDecoder('iso-8859-1')
+            csvText = decoder.decode(arrayBuffer)
+          }
+          // --- FIM DA CORREÇÃO ---
 
           const parsed = Papa.parse(csvText, {
             header: true,
@@ -780,7 +790,7 @@ export default function App() {
 
           loadedJobs.push(...rows.map((r, i) => parseJobFromCsv(r, i, season.id)))
         } catch (e) {
-          console.error(e)
+          console.error('Erro ao carregar CSV:', e)
         }
       }
 
@@ -2058,7 +2068,7 @@ function JobsPage({
 
                     <button type="button" className="job-master-main" onClick={() => setSelectedJobId(job.id)}>
                       <div className="job-master-title-line">
-                        <strong>{translateJobTitleToPt(job.title)}</strong>
+                        <strong>{job.title}</strong>
                         <span className="job-master-location">— {job.location}</span>
                       </div>
 
@@ -2090,10 +2100,10 @@ function JobsPage({
             <div className="jobs-detail-scroll">
               {selectedJob ? (
                 <div className="detail-card detail-card-pt">
-                  <h2>{translateJobTitleToPt(selectedJob.title)}</h2>
+                  <h2>{selectedJob.title}</h2>
                   <p className="detail-employer">{selectedJob.employer}</p>
 
-                  <InfoLine label="Cargo" value={translateJobTitleToPt(selectedJob.title) || 'Não informado'} />
+                  <InfoLine label="Cargo" value={selectedJob.title || 'Não informado'} />
                   <InfoLine label="Case Number" value={selectedJob.caseNumber || 'Não informado'} />
                   <InfoLine label="Empresa" value={selectedJob.employer || 'Não informado'} />
                   <InfoLine label="Agente / Advogado" value={selectedJob.agentAttorneyName || 'Não informado'} />
