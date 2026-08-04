@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import Papa from 'papaparse'
 import { supabase } from './supabase'
 
-const DAILY_LIMIT = 100
+const DAILY_LIMIT = 350
 const DEMO_LIMIT = 10
 const FREE_ACCESS_KEY = 'FREE-H2B-2026'
 const CONTACT_LINK = 'https://wa.me/5575999866105?text=Olá,%20quero%20comprar%20a%20chave%20Premium.%20Meu%20e-mail%20é:%20'
@@ -467,7 +467,7 @@ function loadUserSession() {
 function createQueueId() { return `QUEUE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 function createSentId() { return `SENT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 function randomDelay(fastMode) {
-  return fastMode ? Math.floor(Math.random() * (12000 - 5000 + 1)) + 5000 : Math.floor(Math.random() * (240000 - 90000 + 1)) + 90000
+  return fastMode ? Math.floor(Math.random() * (12000 - 5000 + 1)) + 5000 : Math.floor(Math.random() * (180000 - 60000 + 1)) + 60000
 }
 function formatSeconds(s) {
   const m = Math.floor(s / 60)
