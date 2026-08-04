@@ -13,8 +13,8 @@ const PORT = process.env.PORT || 3001
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'MAGNO-ADMIN-2026'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://future-eua-h2b.vercel.app'
 
-// FASE DE LANÇAMENTO: Limite fixo em 100 candidaturas por usuário.
-const DAILY_LIMIT_PER_USER = 100
+// FASE DE LANÇAMENTO: Limite fixo em 350 candidaturas por usuário.
+const DAILY_LIMIT_PER_USER = 350
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const FROM_EMAIL = process.env.FROM_EMAIL || 'futureeuah2b@gmail.com'
@@ -507,20 +507,8 @@ app.post('/api/send-candidature', async (req, res) => {
       </div>
     `
 
-    let candidateSent = false
-    try {
-      await sendEmailBrevo({
-        to: candidateEmail,
-        toName: candidateName,
-        subject: `[CÓPIA] Application: ${candidateName} — ${jobTitle}`,
-        html: candidateHtml,
-        attachments: emailAttachments,
-      })
-      candidateSent = true
-      console.log(`✅ Cópia enviada ao candidato: ${candidateEmail}`)
-    } catch (err) {
-      console.error('Erro candidato:', err.message)
-    }
+let candidateSent = false
+console.log(`ℹ️ Cópia Brevo desativada para economizar limite. Candidato: ${candidateEmail}`)
 
     const newCount = await incrementDailyCount(licenseKey, candidateEmail)
 
